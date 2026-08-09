@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ghlConnections GhlConnection[]
+  exports        Export[]
+  apiKeys        ApiKey[]
+
+  @@map("users")
+}
+
+model GhlConnection {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locationId        String
+  locationName      String
+  accessToken       String   @db.Text
+  refreshToken      String   @db.Text
+  expiresAt         DateTime
+  scopes            String[]
+  companyId         String?
+  userType          String   @default("Location")
+  approvedLocations String[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  exports Export[]
+
+  @@unique([userId, locationId])
+  @@map("ghl_connections")
+}
+
+model Export {
+  id               String       @id @default(cuid())
+  userId           String
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId     String
+  connection       GhlConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  sourceType       SourceType
+  sourceId         String
+  sourceName       String
+  pageId           String?
+  pageName         String?
+  pageUrl          String?
+  rawHtml          String?      @db.Text
+  status           ExportStatus @default(PENDING)
+  progress         Int          @default(0)
+  extractionMethod ExtractionMethod?
+  githubRepoUrl    String?
+  githubRepoName   String?
+  vercelProjectId  String?
+  vercelDeployUrl  String?
+  vercelDeployId   String?
+  storageUrl       String?
+  errorMessage     String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  logs ExportLog[]
+
+  @@map("exports")
+}
+
+model ExportLog {
+  id        String      @id @default(cuid())
+  exportId  String
+  export    Export      @relation(fields: [exportId], references: [id], onDelete: Cascade)
+  level     LogLevel    @default(INFO)
+  message   String      @db.Text
+  metadata  Json?
+  createdAt DateTime    @default(now())
+
+  @@map("export_logs")
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  keyHash   String   @unique
+  prefix    String
+  scopes    String[]
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@map("api_keys")
+}
+
+enum SourceType {
+  FUNNEL
+  WEBSITE
+  LANDING_PAGE
+}
+
+enum ExportStatus {
+  PENDING
+  EXTRACTING
+  CONVERTING
+  PUSHING_TO_GITHUB
+  DEPLOYING
+  COMPLETED
+  FAILED
+}
+
+enum ExtractionMethod {
+  API
+  PLAYWRIGHT
+  HYBRID
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}

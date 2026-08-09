@@ -1,0 +1,462 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────
+   CSS CUSTOM PROPERTIES
+───────────────────────────────────────────── */
+@layer base {
+  :root {
+    --background: 0 0% 99%;
+    --foreground: 222 47% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 10%;
+    --primary: 38 88% 46%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 15%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 50%;
+    --accent: 38 80% 95%;
+    --accent-foreground: 38 80% 30%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 38 88% 46%;
+    --radius: 0.625rem;
+
+    /* Sidebar — dark navy */
+    --sidebar-background: 222 45% 10%;
+    --sidebar-foreground: 214 32% 72%;
+    --sidebar-primary: 38 90% 62%;
+    --sidebar-primary-foreground: 222 45% 8%;
+    --sidebar-accent: 222 38% 16%;
+    --sidebar-accent-foreground: 214 32% 88%;
+    --sidebar-border: 222 38% 15%;
+    --sidebar-ring: 38 88% 46%;
+  }
+
+  .dark {
+    --background: 222 47% 5%;
+    --foreground: 210 40% 96%;
+    --card: 222 44% 8%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 44% 8%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 38 88% 54%;
+    --primary-foreground: 222 47% 5%;
+    --secondary: 215 28% 15%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 215 28% 15%;
+    --muted-foreground: 218 11% 60%;
+    --accent: 215 28% 15%;
+    --accent-foreground: 210 40% 96%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 96%;
+    --border: 215 28% 15%;
+    --input: 215 28% 15%;
+    --ring: 38 88% 54%;
+    --sidebar-background: 222 47% 7%;
+    --sidebar-foreground: 214 32% 70%;
+    --sidebar-primary: 38 90% 60%;
+    --sidebar-primary-foreground: 222 47% 5%;
+    --sidebar-accent: 222 38% 13%;
+    --sidebar-accent-foreground: 214 32% 88%;
+    --sidebar-border: 222 38% 12%;
+    --sidebar-ring: 38 88% 54%;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   BASE
+───────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   UTILITIES — DESIGN TOKENS
+───────────────────────────────────────────── */
+@layer utilities {
+  /* Gradients */
+  .gradient-gold {
+    background: linear-gradient(135deg, hsl(38 88% 46%) 0%, hsl(45 90% 58%) 100%);
+  }
+  .gradient-gold-h {
+    background: linear-gradient(90deg, hsl(38 88% 46%) 0%, hsl(45 90% 58%) 100%);
+  }
+  .gradient-gold-radial {
+    background: radial-gradient(circle, hsl(45 90% 60%) 0%, hsl(38 88% 46%) 100%);
+  }
+  .gradient-dark {
+    background: linear-gradient(135deg, #0a0d14 0%, #111827 100%);
+  }
+  .gradient-dark-gold {
+    background: linear-gradient(135deg, #0a0d14 0%, hsl(38 60% 12%) 100%);
+  }
+
+  /* Text gradients */
+  .text-gradient-gold {
+    background: linear-gradient(135deg, hsl(38 88% 44%) 0%, hsl(45 90% 56%) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .text-gradient-blue {
+    background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .text-gradient-white {
+    background: linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.7) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Shadows */
+  .card-shadow       { box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06); }
+  .card-shadow-hover { box-shadow: 0 4px 12px 0 rgb(0 0 0 / 0.08), 0 2px 4px -1px rgb(0 0 0 / 0.06); }
+  .shadow-gold       { box-shadow: 0 4px 24px rgba(245,158,11,0.25), 0 1px 6px rgba(245,158,11,0.15); }
+  .shadow-gold-lg    { box-shadow: 0 8px 40px rgba(245,158,11,0.35), 0 2px 10px rgba(245,158,11,0.2); }
+  .shadow-dark       { box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.3); }
+  .shadow-dark-lg    { box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.4); }
+  .text-shadow-gold  { text-shadow: 0 0 20px rgba(245,158,11,0.5); }
+  .glow-gold         { filter: drop-shadow(0 0 12px rgba(245,158,11,0.6)); }
+  .glow-white        { filter: drop-shadow(0 0 12px rgba(255,255,255,0.3)); }
+
+  /* Backdrop */
+  .glass             { backdrop-filter: blur(16px) saturate(1.4); background: rgba(255,255,255,0.06); }
+  .glass-dark        { backdrop-filter: blur(20px) saturate(1.2); background: rgba(10,13,20,0.8); }
+  .glass-gold        { backdrop-filter: blur(16px); background: rgba(245,158,11,0.08); }
+  .glass-border      { border: 1px solid rgba(255,255,255,0.1); }
+
+  /* Performance hints */
+  .will-change-transform   { will-change: transform; }
+  .will-change-opacity     { will-change: opacity; }
+  .will-change-filter      { will-change: filter; }
+  .will-change-auto        { will-change: auto; }
+  .gpu                     { transform: translateZ(0); backface-visibility: hidden; }
+  .perspective             { perspective: 1000px; }
+  .preserve-3d             { transform-style: preserve-3d; }
+}
+
+/* ─────────────────────────────────────────────
+   ANIMATION DELAY UTILITIES
+   (CSS animation-delay — diferente a transition-delay)
+───────────────────────────────────────────── */
+@layer utilities {
+  .animation-delay-0    { animation-delay: 0ms }
+  .animation-delay-75   { animation-delay: 75ms }
+  .animation-delay-100  { animation-delay: 100ms }
+  .animation-delay-150  { animation-delay: 150ms }
+  .animation-delay-200  { animation-delay: 200ms }
+  .animation-delay-300  { animation-delay: 300ms }
+  .animation-delay-400  { animation-delay: 400ms }
+  .animation-delay-500  { animation-delay: 500ms }
+  .animation-delay-600  { animation-delay: 600ms }
+  .animation-delay-700  { animation-delay: 700ms }
+  .animation-delay-800  { animation-delay: 800ms }
+  .animation-delay-900  { animation-delay: 900ms }
+  .animation-delay-1000 { animation-delay: 1000ms }
+  .animation-delay-1200 { animation-delay: 1200ms }
+  .animation-delay-1500 { animation-delay: 1500ms }
+  .animation-delay-2000 { animation-delay: 2000ms }
+  .animation-delay-3000 { animation-delay: 3000ms }
+}
+
+/* ─────────────────────────────────────────────
+   ANIMATION DURATION UTILITIES
+───────────────────────────────────────────── */
+@layer utilities {
+  .animation-duration-75   { animation-duration: 75ms }
+  .animation-duration-100  { animation-duration: 100ms }
+  .animation-duration-150  { animation-duration: 150ms }
+  .animation-duration-200  { animation-duration: 200ms }
+  .animation-duration-300  { animation-duration: 300ms }
+  .animation-duration-500  { animation-duration: 500ms }
+  .animation-duration-700  { animation-duration: 700ms }
+  .animation-duration-1000 { animation-duration: 1000ms }
+  .animation-duration-1500 { animation-duration: 1500ms }
+  .animation-duration-2000 { animation-duration: 2000ms }
+  .animation-duration-3000 { animation-duration: 3000ms }
+}
+
+/* ─────────────────────────────────────────────
+   ANIMATION CONTROL UTILITIES
+───────────────────────────────────────────── */
+@layer utilities {
+  .animation-fill-both      { animation-fill-mode: both }
+  .animation-fill-forwards  { animation-fill-mode: forwards }
+  .animation-fill-backwards { animation-fill-mode: backwards }
+  .animation-fill-none      { animation-fill-mode: none }
+  .animation-paused         { animation-play-state: paused }
+  .animation-running        { animation-play-state: running }
+  .animation-once           { animation-iteration-count: 1 }
+  .animation-infinite       { animation-iteration-count: infinite }
+  .animation-reverse        { animation-direction: reverse }
+  .animation-alternate      { animation-direction: alternate }
+}
+
+/* ─────────────────────────────────────────────
+   SHIMMER UTILITY (skeleton loading)
+───────────────────────────────────────────── */
+@layer utilities {
+  .shimmer-bg {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.06) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2.5s linear infinite;
+  }
+  .shimmer-bg-light {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.18) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2.5s linear infinite;
+  }
+  .skeleton {
+    @apply rounded-md shimmer-bg-light bg-gray-100;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   ANIMATED GRADIENT TEXT
+───────────────────────────────────────────── */
+@layer utilities {
+  .text-gradient-animated {
+    background: linear-gradient(
+      270deg,
+      hsl(38 88% 46%),
+      hsl(45 90% 62%),
+      hsl(35 85% 52%),
+      hsl(50 92% 64%)
+    );
+    background-size: 300% 300%;
+    animation: gradient-shift 4s ease infinite;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   TYPEWRITER
+───────────────────────────────────────────── */
+@layer utilities {
+  .typewriter {
+    overflow: hidden;
+    white-space: nowrap;
+    border-right: 2px solid hsl(var(--primary));
+    animation:
+      typewriter 3s steps(40) both,
+      blink 1s step-end infinite;
+  }
+  .cursor-blink::after {
+    content: "|";
+    animation: blink 1s step-end infinite;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   MARQUEE WRAPPER
+───────────────────────────────────────────── */
+@layer utilities {
+  .marquee-wrap {
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .marquee-track {
+    display: inline-flex;
+    animation: marquee 20s linear infinite;
+  }
+  .marquee-track:hover {
+    animation-play-state: paused;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   HOVER LIFT / PRESS UTILITIES
+───────────────────────────────────────────── */
+@layer utilities {
+  .hover-lift {
+    @apply transition-transform duration-200 ease-out;
+  }
+  .hover-lift:hover {
+    transform: translateY(-4px);
+  }
+  .hover-lift-sm:hover {
+    transform: translateY(-2px);
+  }
+  .hover-press:active {
+    transform: scale(0.96);
+  }
+  .hover-grow:hover {
+    transform: scale(1.04);
+    transition: transform 0.2s ease;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   SCROLL-REVEAL HELPER
+   Wrap elements in .reveal; JS adds .revealed
+───────────────────────────────────────────── */
+@layer utilities {
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+  }
+  .reveal.revealed {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .reveal-fast {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+  }
+  .reveal-fast.revealed {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─────────────────────────────────────────────
+   SHINE EFFECT (botones / cards)
+   Aplica a un elemento con overflow: hidden
+   y un ::before que barre de izquierda a derecha
+───────────────────────────────────────────── */
+@layer utilities {
+  .shine-effect {
+    position: relative;
+    overflow: hidden;
+  }
+  .shine-effect::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(
+      120deg,
+      transparent 20%,
+      rgba(255, 255, 255, 0.18) 50%,
+      transparent 80%
+    );
+    pointer-events: none;
+  }
+  .shine-effect:hover::before {
+    animation: shine 0.7s ease-in-out;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   RIPPLE ON CLICK
+───────────────────────────────────────────── */
+@layer utilities {
+  .ripple-click {
+    position: relative;
+    overflow: hidden;
+  }
+  .ripple-click::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 60%);
+    opacity: 0;
+    transform: scale(0);
+    transition: transform 0.4s, opacity 0.4s;
+  }
+  .ripple-click:active::after {
+    transform: scale(2);
+    opacity: 1;
+    transition: 0s;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   MORPH BLOB
+───────────────────────────────────────────── */
+@layer utilities {
+  .morph-blob {
+    animation: morph 8s ease-in-out infinite;
+    border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   PROGRESS BAR ANIMATIONS
+───────────────────────────────────────────── */
+@layer utilities {
+  .progress-striped {
+    background-image: linear-gradient(
+      45deg,
+      rgba(255,255,255,0.12) 25%,
+      transparent 25%,
+      transparent 50%,
+      rgba(255,255,255,0.12) 50%,
+      rgba(255,255,255,0.12) 75%,
+      transparent 75%,
+      transparent
+    );
+    background-size: 1rem 1rem;
+    animation: shimmer 1.5s linear infinite;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   STAGGER CHILDREN UTILITIES
+   Aplica delays automáticamente a los hijos
+───────────────────────────────────────────── */
+@layer utilities {
+  .stagger-children > *:nth-child(1)  { animation-delay: 0ms }
+  .stagger-children > *:nth-child(2)  { animation-delay: 80ms }
+  .stagger-children > *:nth-child(3)  { animation-delay: 160ms }
+  .stagger-children > *:nth-child(4)  { animation-delay: 240ms }
+  .stagger-children > *:nth-child(5)  { animation-delay: 320ms }
+  .stagger-children > *:nth-child(6)  { animation-delay: 400ms }
+  .stagger-children > *:nth-child(7)  { animation-delay: 480ms }
+  .stagger-children > *:nth-child(8)  { animation-delay: 560ms }
+
+  .stagger-children-sm > *:nth-child(1) { animation-delay: 0ms }
+  .stagger-children-sm > *:nth-child(2) { animation-delay: 40ms }
+  .stagger-children-sm > *:nth-child(3) { animation-delay: 80ms }
+  .stagger-children-sm > *:nth-child(4) { animation-delay: 120ms }
+  .stagger-children-sm > *:nth-child(5) { animation-delay: 160ms }
+  .stagger-children-sm > *:nth-child(6) { animation-delay: 200ms }
+
+  .stagger-children-lg > *:nth-child(1) { animation-delay: 0ms }
+  .stagger-children-lg > *:nth-child(2) { animation-delay: 150ms }
+  .stagger-children-lg > *:nth-child(3) { animation-delay: 300ms }
+  .stagger-children-lg > *:nth-child(4) { animation-delay: 450ms }
+  .stagger-children-lg > *:nth-child(5) { animation-delay: 600ms }
+}
+
+/* ─────────────────────────────────────────────
+   SMOOTH SCROLL
+───────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
