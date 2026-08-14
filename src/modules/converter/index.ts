@@ -539,7 +539,10 @@ function buildAnimationSafetyScript(): string {
     function openModal(modal) {
       modal.style.removeProperty('display');
       var computedDisplay = window.getComputedStyle(modal).display;
-      if (computedDisplay === 'none') modal.style.display = 'flex';
+      // Use display:block — GHL popup overlays are position:fixed full-screen containers
+      // where child elements handle centering (not the container's display type).
+      // flex on the container would arrange children horizontally, breaking GHL layouts.
+      if (computedDisplay === 'none') modal.style.display = 'block';
       modal.style.removeProperty('visibility');
       modal.style.removeProperty('opacity');
       modal.classList.add('show','active','open','is-open','visible','in','shown','fade-in');
