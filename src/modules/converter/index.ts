@@ -100,25 +100,29 @@ header.active-scroll, nav.active-scroll, .navbar.active-scroll {
 }
 
 /* ── Modal / Popup base styles ───────────────────────────────────────────── */
-/* Modals that lack explicit display:none rely on missing .show/.active class */
+/* Generic third-party popup patterns hidden by default — our safety script opens them.
+   [data-element-type="popup"] is intentionally excluded: those are GHL AI Builder
+   popup sections managed by GHL's runtime (msgsndr.com), which uses its own class
+   toggle mechanism. Forcing display:none!important here would prevent GHL's runtime
+   from opening them if it adds a class not in our exception list. */
 .modal:not(.show):not(.active):not(.open):not(.in):not(.is-open),
 .popup:not(.show):not(.active):not(.open):not(.is-open),
 .dialog:not(.show):not(.active):not(.open),
 .lightbox:not(.show):not(.active):not(.open),
-.hl-popup:not(.show):not(.active):not(.open),
-[data-element-type="popup"]:not(.show):not(.active):not(.open) {
+.hl-popup:not(.show):not(.active):not(.open) {
   display: none !important;
 }
-/* Ensure modals that ARE open appear above everything */
+/* Ensure generic modals that ARE open appear above everything.
+   display:block (not flex) is the safe default — GHL popup overlays use position:fixed
+   with child elements handling centering; forcing flex on the container breaks layouts. */
 .modal.show, .modal.active, .modal.open, .modal.is-open,
 .popup.show, .popup.active, .popup.open, .popup.is-open,
-.hl-popup.show, .hl-popup.active, .hl-popup.open,
-[data-element-type="popup"].show, [data-element-type="popup"].active {
-  display: flex !important;
+.hl-popup.show, .hl-popup.active, .hl-popup.open {
+  display: block !important;
   z-index: 99999;
 }
 /* Smooth open/close transition for modals */
-.modal, .popup, .dialog, .lightbox, .hl-popup, [data-element-type="popup"] {
+.modal, .popup, .dialog, .lightbox, .hl-popup {
   transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 /* Swiper / carousel: make sure slides are visible when no JS */
@@ -645,8 +649,14 @@ function buildAnimationSafetyScript(): string {
         target.classList.contains('overlay') || target.classList.contains('hl-popup') ||
         target.getAttribute('data-element-type') === 'popup' ||
         target.getAttribute('role') === 'dialog';
-      // If element is visible and not popup-like, it's a section anchor — skip
-      if (!isPopupLike && cs.display !== 'none' && cs.visibility !== 'hidden') return;
+      // Skip section scroll anchors: if element is not popup-like, treat it as a regular
+      // in-page anchor regardless of its visibility state. WOW.js, SAL, and GHL's animation
+      // system set visibility:hidden on sections (not display:none), so the old check
+      // '&& cs.visibility !== "hidden"' caused these animated sections to be mis-classified
+      // as popups — scroll-to-section CTAs intercepted and never scrolled.
+      if (!isPopupLike) return;
+      // Skip popup-like elements that are already visible — already managed by another system
+      if (cs.display !== 'none' && cs.visibility !== 'hidden') return;
       link.__hlModalTrigger = true;
       link.style.cursor = 'pointer';
       link.addEventListener('click', function(e) {
@@ -1228,13 +1238,14 @@ html,body{opacity:1!important}
 /* WOW fallback: fires only if WOW never ran */
 .wow:not(.animated):not(.wow-animated){visibility:visible!important;opacity:1!important}
 [class*="animate__"][class*="animate__delay-"]{animation-play-state:running!important}
-/* Modals hidden by default — JS opens them */
+/* Generic modals hidden by default (JS opens them). [data-element-type="popup"] excluded:
+   those are GHL AI Builder popups managed by GHL's runtime with its own class toggle. */
 .modal:not(.show):not(.active):not(.open):not(.in):not(.is-open),
 .popup:not(.show):not(.active):not(.open):not(.is-open),
-.hl-popup:not(.show):not(.active):not(.open),
-[data-element-type="popup"]:not(.show):not(.active):not(.open){display:none!important}
-/* Open modals always on top */
-.modal.show,.modal.active,.popup.show,.popup.active,.hl-popup.show,.hl-popup.active{display:flex!important;z-index:99999}
+.hl-popup:not(.show):not(.active):not(.open){display:none!important}
+/* Open modals always on top. display:block (not flex) — popup overlays use position:fixed
+   with child elements for centering; flex on the container breaks GHL popup layouts. */
+.modal.show,.modal.active,.popup.show,.popup.active,.hl-popup.show,.hl-popup.active{display:block!important;z-index:99999}
 </style>`;
 
   return `<!DOCTYPE html>
@@ -1355,7 +1366,10 @@ export class PageConverter {
     const fullHtml = buildStaticHtml(
       headHtml,
       bodyHtml,
-      buildScriptTags([...recoveredScripts, ...parsed.orderedScripts], jsUrlMap),
+      // orderedScripts first (page's static <script> tags in original order),
+      // recoveredScripts last (dynamically injected by page JS at runtime — they depend
+      // on libraries from orderedScripts and must not load before them).
+      buildScriptTags([...parsed.orderedScripts, ...recoveredScripts], jsUrlMap),
       extracted.metadata.lang ?? "en",
       cdnCssLinks,
       parsed.bodyAttribs,
@@ -1488,7 +1502,8 @@ export class PageConverter {
       const fullHtml = buildStaticHtml(
         headHtml,
         bodyHtml,
-        buildScriptTags([...pageRecoveredScripts, ...parsed.orderedScripts], jsUrlMap),
+        // orderedScripts first — same reasoning as single-page convert().
+        buildScriptTags([...parsed.orderedScripts, ...pageRecoveredScripts], jsUrlMap),
         extracted.metadata.lang ?? "en",
         cdnCssLinks,
         parsed.bodyAttribs,
