@@ -264,7 +264,16 @@ export class PlaywrightExtractor {
       await page.waitForTimeout(2000);
     }
 
-    await page.evaluate(() => window.scrollTo(0, 0));
+    // Final scroll: land at y=80 (above the 50px threshold used by most scroll listeners)
+    // so that the header is in its "scrolled" state — solid background, readable text.
+    //
+    // Why NOT scroll to y=0:
+    //   Many pages use a transparent header at the very top (y=0) with white text.
+    //   In a static export this state is frozen: no JS will restore a visible header,
+    //   so white text stays invisible against the transparent/light background forever.
+    //   Capturing at y=80 gives us the header in its solid/visible state without
+    //   meaningfully cutting off the hero content (page layout is the same at y=80 vs y=0).
+    await page.evaluate(() => window.scrollTo(0, 80));
     await page.waitForTimeout(1000);
 
     // Force lazy-loaded images and background images to resolve their src so they
@@ -288,63 +297,103 @@ export class PlaywrightExtractor {
       });
     });
 
-    // Force all scroll-animation elements to final visible state before HTML capture.
+    // Reset animation state so scroll animations replay correctly on Vercel.
     //
-    // Root cause: AOS.js (once:false default) REMOVES 'aos-animate' when elements leave
-    // the viewport. After scrollTo(0,0) above, every below-fold element is back at opacity:0.
-    // GHL's platform JS also sets inline opacity:0 that only it restores — blocked in static export.
-    // Setting inline opacity:1 !important wins over both AOS CSS and GHL CSS so ALL content
-    // is visible in the static HTML. CSS hover/transition effects still work (they use :hover,
-    // not opacity from this override). Scroll behaviors (navbar hide/show) are added by the
-    // safety script injected at end of body.
+    // Strategy: preserve animation library classes/attributes so AOS/WOW/SAL re-initialize
+    // and animate on scroll. We only force-visible elements that depend on GHL platform JS
+    // (which we strip), not elements managed by portable animation libraries.
+    //
+    // Key insight: AOS.js (once:false) removes 'aos-animate' when elements leave the viewport
+    // after scrollTo(0,0). This is CORRECT behavior for scroll animations — we keep it.
+    // AOS will re-add 'aos-animate' as the user scrolls on Vercel.
     await page.evaluate(() => {
-      // AOS
+      // AOS: reset to ready-to-animate state.
+      // Keep 'aos-init' (prevents CSS fallback flash; AOS.refresh() handles it).
+      // Remove 'aos-animate' (re-added by AOS as user scrolls on Vercel).
+      // Remove any inline overrides from a previous force-visible pass.
       document.querySelectorAll<HTMLElement>('[data-aos]').forEach((el) => {
-        el.classList.add('aos-init', 'aos-animate');
-        el.style.setProperty('opacity', '1', 'important');
-        el.style.setProperty('transform', 'none', 'important');
-        el.style.setProperty('visibility', 'visible', 'important');
+        el.classList.add('aos-init');
+        el.classList.remove('aos-animate');
+        el.style.removeProperty('opacity');
+        el.style.removeProperty('transform');
+        el.style.removeProperty('visibility');
       });
-      // WOW.js / Animate.css
+
+      // WOW.js: reset animated state so WOW re-animates on scroll.
       document.querySelectorAll<HTMLElement>('.wow, [data-wow-duration]').forEach((el) => {
-        el.classList.add('animated', 'wow-animated');
-        el.style.setProperty('opacity', '1', 'important');
-        el.style.setProperty('visibility', 'visible', 'important');
+        el.classList.remove('animated', 'wow-animated');
+        el.style.removeProperty('opacity');
+        el.style.removeProperty('visibility');
       });
-      // SAL / ScrollReveal
+
+      // SAL / ScrollReveal: reset state so library re-animates on scroll.
       document.querySelectorAll<HTMLElement>('[data-sal], [data-sr-id]').forEach((el) => {
-        el.setAttribute('data-sal-state', 'animated');
-        el.style.setProperty('opacity', '1', 'important');
-        el.style.setProperty('transform', 'none', 'important');
-        el.style.setProperty('visibility', 'visible', 'important');
+        el.removeAttribute('data-sal-state');
+        el.style.removeProperty('opacity');
+        el.style.removeProperty('transform');
+        el.style.removeProperty('visibility');
       });
-      // GHL builder wrappers with low computed opacity
+
+      // GHL builder wrappers: force visible ONLY for elements NOT managed by animation libs.
+      // These depend on GHL platform JS (body.hl-page-loaded, etc.) which we strip — without
+      // force-visible they stay hidden forever. Animation-library elements are excluded here
+      // because their visibility is controlled by AOS/WOW/SAL, not GHL platform JS.
       document.querySelectorAll<HTMLElement>('.hl-element-wrapper, [data-element-type]').forEach((el) => {
+        if (el.hasAttribute('data-aos') || el.classList.contains('wow') || el.hasAttribute('data-sal')) return;
         const cs = window.getComputedStyle(el);
         if (parseFloat(cs.opacity) < 0.1 || cs.visibility === 'hidden') {
           el.style.setProperty('opacity', '1', 'important');
           el.style.setProperty('visibility', 'visible', 'important');
         }
       });
-      // Any element with explicit inline opacity:0 (GHL stagger/init pattern)
+
+      // Strip inline opacity:0 / visibility:hidden from non-animation elements.
+      // These come from GHL stagger/init patterns and would stay hidden in a static export.
+      // Animation elements are excluded — their initial invisible state is set by CSS, not inline.
       document.querySelectorAll<HTMLElement>('[style]').forEach((el) => {
+        if (el.hasAttribute('data-aos') || el.classList.contains('wow') || el.hasAttribute('data-sal')) return;
         if (el.style.opacity === '0') el.style.removeProperty('opacity');
         if (el.style.visibility === 'hidden' && !el.closest('head')) el.style.removeProperty('visibility');
       });
+
+      // Always force body/html visible — GHL sets opacity:0 during JS init and restores it.
+      // In a static export the restore never happens without this.
+      document.body.style.setProperty('opacity', '1', 'important');
+      document.documentElement.style.setProperty('opacity', '1', 'important');
     });
 
     const cleanAndGetHtml = () => page.evaluate(() => {
+      // Remove GHL CRM/chat DOM widgets — these are visual chrome, not page content.
       document.querySelectorAll(
-        "script[src*='msgsndr'], script[src*='gohighlevel'], #hl-messenger-frame, .hl-sticky-contact-form-button"
+        "#hl-messenger-frame, .hl-sticky-contact-form-button, " +
+        "#hl-chat-widget-container, .hl-chat-widget, " +
+        "[id='hl-messenger'], [class='hl-messenger']"
       ).forEach((el) => el.remove());
-      document.querySelectorAll("script").forEach((s) => {
+
+      // Remove only specific scripts we know break a standalone Vercel deployment.
+      // Do NOT remove all msgsndr.com scripts — GHL's page builder runtime (animations,
+      // header scroll, tabs, sliders, interactive components) lives on that CDN.
+      document.querySelectorAll("script[src]").forEach((s) => {
         const src = s.getAttribute("src") ?? "";
         if (
           src.includes("googletagmanager") ||
-          src.includes("facebook") ||
+          src.includes("facebook.net") ||
+          src.includes("connect.facebook.net") ||
           src.includes("hotjar") ||
-          (!src && (s.textContent?.includes("gtag") || s.textContent?.includes("fbq")))
+          src.includes("form_embed") ||
+          src.includes("hl-chat") ||
+          src.includes("hl-messenger") ||
+          src.includes("msgsndr-chat") ||
+          src.includes("gohighlevel.com")
         ) s.remove();
+      });
+      // Remove inline-only tracking scripts (gtag/fbq with no page-init code).
+      document.querySelectorAll("script:not([src])").forEach((s) => {
+        const t = s.textContent ?? "";
+        const isTracking = (t.includes("gtag(") || t.includes("fbq(")) &&
+          !t.includes("AOS") && !t.includes("Swiper") && !t.includes("gsap") &&
+          !t.includes("addEventListener") && !t.includes("DOMContentLoaded");
+        if (isTracking) s.remove();
       });
       return document.documentElement.outerHTML;
     });
@@ -582,7 +631,9 @@ export class PlaywrightExtractor {
       await page.waitForLoadState("networkidle", { timeout: 15_000 });
     } catch { /* ok */ }
     await page.waitForTimeout(2000);
-    await page.evaluate(() => window.scrollTo(0, 0));
+    // Same reasoning as extractWithEngine: capture at y=80 so scroll-aware headers
+    // are in their solid/visible "scrolled" state, not transparent "at-top" state.
+    await page.evaluate(() => window.scrollTo(0, 80));
     await page.waitForTimeout(1000);
 
     // Force lazy-loaded images and data-bg background images to resolve
@@ -607,23 +658,25 @@ export class PlaywrightExtractor {
     // Same DOM preparation as extractWithEngine — see detailed comment there.
     await page.evaluate(() => {
       document.querySelectorAll<HTMLElement>('[data-aos]').forEach((el) => {
-        el.classList.add('aos-init', 'aos-animate');
-        el.style.setProperty('opacity', '1', 'important');
-        el.style.setProperty('transform', 'none', 'important');
-        el.style.setProperty('visibility', 'visible', 'important');
+        el.classList.add('aos-init');
+        el.classList.remove('aos-animate');
+        el.style.removeProperty('opacity');
+        el.style.removeProperty('transform');
+        el.style.removeProperty('visibility');
       });
       document.querySelectorAll<HTMLElement>('.wow, [data-wow-duration]').forEach((el) => {
-        el.classList.add('animated', 'wow-animated');
-        el.style.setProperty('opacity', '1', 'important');
-        el.style.setProperty('visibility', 'visible', 'important');
+        el.classList.remove('animated', 'wow-animated');
+        el.style.removeProperty('opacity');
+        el.style.removeProperty('visibility');
       });
       document.querySelectorAll<HTMLElement>('[data-sal], [data-sr-id]').forEach((el) => {
-        el.setAttribute('data-sal-state', 'animated');
-        el.style.setProperty('opacity', '1', 'important');
-        el.style.setProperty('transform', 'none', 'important');
-        el.style.setProperty('visibility', 'visible', 'important');
+        el.removeAttribute('data-sal-state');
+        el.style.removeProperty('opacity');
+        el.style.removeProperty('transform');
+        el.style.removeProperty('visibility');
       });
       document.querySelectorAll<HTMLElement>('.hl-element-wrapper, [data-element-type]').forEach((el) => {
+        if (el.hasAttribute('data-aos') || el.classList.contains('wow') || el.hasAttribute('data-sal')) return;
         const cs = window.getComputedStyle(el);
         if (parseFloat(cs.opacity) < 0.1 || cs.visibility === 'hidden') {
           el.style.setProperty('opacity', '1', 'important');
@@ -631,13 +684,38 @@ export class PlaywrightExtractor {
         }
       });
       document.querySelectorAll<HTMLElement>('[style]').forEach((el) => {
+        if (el.hasAttribute('data-aos') || el.classList.contains('wow') || el.hasAttribute('data-sal')) return;
         if (el.style.opacity === '0') el.style.removeProperty('opacity');
         if (el.style.visibility === 'hidden' && !el.closest('head')) el.style.removeProperty('visibility');
       });
+      document.body.style.setProperty('opacity', '1', 'important');
+      document.documentElement.style.setProperty('opacity', '1', 'important');
     });
 
     const html = await page.evaluate(() => {
-      document.querySelectorAll("script[src*='msgsndr'], script[src*='gohighlevel'], #hl-messenger-frame, .hl-sticky-contact-form-button").forEach((el) => el.remove());
+      // Same cleanup as extractWithEngine — see detailed comments there.
+      document.querySelectorAll(
+        "#hl-messenger-frame, .hl-sticky-contact-form-button, " +
+        "#hl-chat-widget-container, .hl-chat-widget, " +
+        "[id='hl-messenger'], [class='hl-messenger']"
+      ).forEach((el) => el.remove());
+      document.querySelectorAll("script[src]").forEach((s) => {
+        const src = s.getAttribute("src") ?? "";
+        if (
+          src.includes("googletagmanager") || src.includes("facebook.net") ||
+          src.includes("connect.facebook.net") || src.includes("hotjar") ||
+          src.includes("form_embed") || src.includes("hl-chat") ||
+          src.includes("hl-messenger") || src.includes("msgsndr-chat") ||
+          src.includes("gohighlevel.com")
+        ) s.remove();
+      });
+      document.querySelectorAll("script:not([src])").forEach((s) => {
+        const t = s.textContent ?? "";
+        const isTracking = (t.includes("gtag(") || t.includes("fbq(")) &&
+          !t.includes("AOS") && !t.includes("Swiper") && !t.includes("gsap") &&
+          !t.includes("addEventListener") && !t.includes("DOMContentLoaded");
+        if (isTracking) s.remove();
+      });
       return document.documentElement.outerHTML;
     });
 

@@ -70,15 +70,6 @@ async function fetchExternalCss(cssUrl: string): Promise<string> {
   }
 }
 
-// GHL-specific CDN domains whose CSS is already embedded in ghl-styles.css.
-// Their URLs are signed (expire in hours), so they must NOT be added as live <link> tags.
-const GHL_CDN_DOMAINS = [
-  "storage.googleapis.com/msgsndr",
-  ".msgsndr.com",
-  "leadconnectorhq.com",
-  "services.leadconnectorhq.com",
-];
-
 /**
  * Builds the captured CSS + animation-visibility safety overrides.
  *
@@ -89,15 +80,22 @@ const GHL_CDN_DOMAINS = [
 function buildGhlStylesCss(inlineCss: string): string {
   // Base styles prepended BEFORE page CSS so the page's own captured CSS always wins.
   const navbarBase = `
-/* GHL Export: navbar scroll base */
+/* GHL Export: navbar scroll base — applied only if page CSS doesn't override */
 header, nav, .navbar, [class*="site-header"], [class*="nav-bar"] {
-  transition: transform 0.35s ease, box-shadow 0.3s ease, padding 0.3s ease, background-color 0.3s ease;
+  transition: transform 0.35s ease, box-shadow 0.3s ease, padding 0.3s ease,
+              background-color 0.35s ease, color 0.3s ease;
 }
+/* Generic hide-on-scroll — page CSS with higher specificity wins over this */
 header.nav--hidden, nav.nav--hidden, .navbar.nav--hidden,
-header.hide, nav.hide, .navbar.hide {
+header.hide, nav.hide, .navbar.hide,
+header.nav-hidden, nav.nav-hidden, .navbar.nav-hidden {
   transform: translateY(-100%);
 }
-header.scrolled, nav.scrolled, .navbar.scrolled {
+/* Scrolled state: add shadow as minimum visual feedback */
+header.scrolled, nav.scrolled, .navbar.scrolled,
+header.hl-scrolled, nav.hl-scrolled, .navbar.hl-scrolled,
+header.is-scrolled, nav.is-scrolled, .navbar.is-scrolled,
+header.active-scroll, nav.active-scroll, .navbar.active-scroll {
   box-shadow: 0 2px 10px rgba(0,0,0,0.15);
 }
 
@@ -132,37 +130,37 @@ header.scrolled, nav.scrolled, .navbar.scrolled {
 `;
 
   const safetyOverrides = `
-/* GHL Export: safety overrides — ensure page content is visible */
+/* GHL Export: safety overrides — last-resort fallbacks ONLY.
+   GHL's page builder runtime (msgsndr.com) now runs in the exported page
+   and manages animations, visibility, and interactive behaviors itself.
+   These overrides only activate when that runtime fails to initialize. */
 
-/* Body must always be opaque — GHL builder sets opacity:0 during JS init,
-   relying on its own JS to restore it. In a static export that JS may be absent. */
+/* Body must always be opaque — GHL sets opacity:0 during init and restores it.
+   If the runtime loads correctly this is a no-op (runtime sets opacity:1 itself). */
 html, body { opacity: 1 !important; }
 
-/* GHL structural elements — force display/visibility but NOT opacity globally
-   (opacity is managed by animation libraries; broad !important would kill all animations). */
-[data-element-type] { visibility: visible !important; }
+/* Page sections must be displayed — structural fallback only. */
 .hl-page-section { display: block !important; }
 
-/* AOS: force visible ONLY when AOS library never ran at all (no aos-init class was set).
-   When AOS works correctly it adds aos-init to every [data-aos] element, so this rule
-   becomes inactive and AOS controls opacity normally (fade-in on scroll). */
+/* AOS: dormant when 'aos-init' is present (exported HTML includes it).
+   Emergency fallback if AOS.js never loads at all. */
 [data-aos]:not(.aos-init) {
   opacity: 1 !important;
   transform: none !important;
   visibility: visible !important;
 }
 
-/* ScrollReveal / SAL: similar — no state attribute means SR never ran */
+/* WOW.js: fallback if WOW.js never loaded */
+.wow:not(.animated):not(.wow-animated) { visibility: visible !important; opacity: 1 !important; }
+
+/* SAL: fallback if SAL never ran (state attribute missing = library never initialized) */
 [data-sal]:not([data-sal-state]) {
   opacity: 1 !important;
   transform: none !important;
   visibility: visible !important;
 }
 
-/* WOW.js: elements WOW never activated because JS failed entirely */
-.wow:not(.animated):not(.wow-animated) { visibility: visible !important; opacity: 1 !important; }
-
-/* Animate.css used directly without a scroll trigger */
+/* Animate.css: ensure delayed animations actually play */
 [class*="animate__"][class*="animate__delay-"] { animation-play-state: running !important; }
 `;
   return navbarBase + (inlineCss.trim() ? "\n" + inlineCss + "\n\n" : "\n") + safetyOverrides;
@@ -199,26 +197,38 @@ function buildAnimationSafetyScript(): string {
   try { document.documentElement.style.setProperty('opacity','1','important'); } catch(e) {}
 
   // ── 2. AOS: enable scroll animations ─────────────────────────────────────
+  // Elements in the exported HTML have 'aos-init' (set by preprocessing) but NOT
+  // 'aos-animate'. The page's inline AOS.init() call runs before this safety script
+  // and sets up IntersectionObservers. We call refresh() to ensure correct state.
   try {
     if (typeof AOS !== 'undefined' && typeof AOS.init === 'function') {
-      document.querySelectorAll('[data-aos].aos-animate').forEach(function(el) {
-        if (el.getBoundingClientRect().top > window.innerHeight + 50) {
-          el.classList.remove('aos-animate');
-          el.style.removeProperty('opacity');
-          el.style.removeProperty('transform');
-          el.style.removeProperty('visibility');
-        }
-      });
-      AOS.init({ once: true, duration: 800, offset: 80 });
+      // Refresh so IntersectionObserver re-evaluates after all layout is done.
       AOS.refresh();
-    } else if (!document.querySelector('[data-aos].aos-init')) {
-      document.querySelectorAll('[data-aos]').forEach(function(el) {
-        var cs = window.getComputedStyle(el);
-        if (parseFloat(cs.opacity) < 0.1) {
-          el.style.setProperty('opacity','1','important');
-          el.style.setProperty('transform','none','important');
-        }
-      });
+      // Deferred check: if after 200ms no [data-aos] elements have animated,
+      // the page probably had no inline AOS.init() call — run init ourselves.
+      // IntersectionObserver fires within ~16ms so 200ms is safely after IO callbacks.
+      setTimeout(function() {
+        try {
+          if (document.querySelector('[data-aos]') && !document.querySelector('[data-aos].aos-animate')) {
+            AOS.init({ once: false, offset: 50 });
+            AOS.refresh();
+          }
+        } catch(e2) {}
+      }, 200);
+    }
+  } catch(e) {}
+
+  // ── 2b. WOW.js / Animate.css: init if not already running ────────────────
+  try {
+    if (typeof WOW !== 'undefined' && !document.querySelector('.wow.animated')) {
+      new WOW({ live: false }).init();
+    }
+  } catch(e) {}
+
+  // ── 2c. SAL (Scroll Animation Library) ───────────────────────────────────
+  try {
+    if (typeof sal !== 'undefined' && !document.querySelector('[data-sal][data-sal-state]')) {
+      sal({ threshold: 0.2, once: false });
     }
   } catch(e) {}
 
@@ -340,18 +350,24 @@ function buildAnimationSafetyScript(): string {
     }
   } catch(e) {}
 
-  // ── 4. GSAP ScrollTrigger refresh ────────────────────────────────────────
+  // ── 4. GSAP / ScrollTrigger refresh ──────────────────────────────────────
   try {
-    if (typeof gsap !== 'undefined' && typeof ScrollTrigger !== 'undefined') {
-      gsap.registerPlugin(ScrollTrigger);
-      ScrollTrigger.refresh();
+    if (typeof gsap !== 'undefined') {
+      if (typeof ScrollTrigger !== 'undefined') {
+        gsap.registerPlugin(ScrollTrigger);
+        // Delay refresh so GSAP animations that depend on layout have correct measurements
+        setTimeout(function() { try { ScrollTrigger.refresh(true); } catch(e) {} }, 200);
+      }
+      if (typeof ScrollSmoother !== 'undefined') {
+        try { ScrollSmoother.refresh(); } catch(e2) {}
+      }
     } else if (typeof ScrollTrigger !== 'undefined') {
-      ScrollTrigger.refresh();
+      setTimeout(function() { try { ScrollTrigger.refresh(true); } catch(e) {} }, 200);
     }
   } catch(e) {}
 
   // ── 5. Hamburger / mobile nav toggle ─────────────────────────────────────
-  (function () {
+  try { (function () {
     var btnSel = [
       '.hamburger','.hamburger-menu','.hamburger-btn',
       '.navbar-toggler','.nav-toggle','.menu-toggle','.menu-btn',
@@ -392,10 +408,10 @@ function buildAnimationSafetyScript(): string {
         }
       });
     });
-  })();
+  })(); } catch(e) {}
 
   // ── 6. Tab components ─────────────────────────────────────────────────────
-  (function () {
+  try { (function () {
     var tabBtnSel = [
       '[data-tab]','[data-tab-id]','[data-tab-index]',
       '.tab-title','.tab-btn','.tab-button','.tab-link',
@@ -452,10 +468,10 @@ function buildAnimationSafetyScript(): string {
         if (firstBtn) firstBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       }
     });
-  })();
+  })(); } catch(e) {}
 
   // ── 7. Accordion / FAQ toggle ─────────────────────────────────────────────
-  (function () {
+  try { (function () {
     var triggerSel = [
       '.faq-question','.accordion-trigger','.accordion-header','.accordion-btn',
       '[class*="faq"] [class*="question"]',
@@ -493,10 +509,10 @@ function buildAnimationSafetyScript(): string {
         trigger.setAttribute('aria-expanded', String(!isOpen));
       });
     });
-  })();
+  })(); } catch(e) {}
 
   // ── 8. Modal / Popup — comprehensive handler ──────────────────────────────
-  (function () {
+  try { (function () {
     // All selectors that identify a popup/modal container
     var POPUP_CONTAINER_SEL =
       '.modal,.popup,.dialog,.lightbox,.overlay,.overlay-popup,' +
@@ -651,11 +667,11 @@ function buildAnimationSafetyScript(): string {
         ).forEach(function(m) { closeModal(m); });
       }
     });
-  })();
+  })(); } catch(e) {}
 
   // ── 9. Generic image carousel / slider (prev/next) ────────────────────────
   // Handles custom carousels not covered by Swiper/Owl/Slick
-  (function () {
+  try { (function () {
     var carouselSel = [
       '.carousel:not(.swiper):not(.owl-carousel)',
       '.slider:not(.slick-initialized):not(.swiper)',
@@ -703,10 +719,10 @@ function buildAnimationSafetyScript(): string {
         if (Math.abs(dx) > 40) show(dx < 0 ? idx + 1 : idx - 1);
       }, { passive: true });
     });
-  })();
+  })(); } catch(e) {}
 
   // ── 10. Before/After image slider ─────────────────────────────────────────
-  (function () {
+  try { (function () {
     document.querySelectorAll('.before-after,.before-after-slider,[class*="before-after"],[data-before-after]').forEach(function(container) {
       if (container.__hlBeforeAfter) return;
       container.__hlBeforeAfter = true;
@@ -739,10 +755,10 @@ function buildAnimationSafetyScript(): string {
         update(50);
       }
     });
-  })();
+  })(); } catch(e) {}
 
   // ── 11. Dropdown menus (click + document close) ───────────────────────────
-  (function () {
+  try { (function () {
     var dropdownSel = [
       '[data-toggle="dropdown"]','[data-bs-toggle="dropdown"]',
       '.dropdown-toggle','[class*="dropdown-btn"]','[class*="dropdown-trigger"]',
@@ -775,36 +791,77 @@ function buildAnimationSafetyScript(): string {
         m.classList.remove('show','open'); m.style.display = 'none';
       });
     });
-  })();
+  })(); } catch(e) {}
 
-  // ── 12. Scroll behavior: navbar hide-on-scroll / shrink ──────────────────
-  (function () {
+  // ── 12. Scroll behavior: navbar transparency / shrink / hide-on-scroll ───
+  try { (function () {
     var hdr = document.querySelector(
       'header,nav,#navbar,.navbar,[class*="nav-bar"],[class*="site-header"],' +
       '[id*="navbar"],[id*="header"]:not([id="header-section"]),.menu-wrap,' +
       '[class*="top-bar"],[class*="header-wrap"],[class*="main-nav"]'
     );
     if (!hdr) return;
+
     var cs = window.getComputedStyle(hdr);
-    var hasTransition = cs.transition && cs.transition !== 'all 0s ease 0s' && cs.transition !== 'none 0s ease 0s 0s';
-    if (!hasTransition) {
-      hdr.style.transition = 'transform 0.35s ease,box-shadow 0.3s ease,padding 0.3s ease,background-color 0.3s ease';
-    }
+
+    // Detect if the page already defines scroll-state CSS (scrolled / hl-scrolled / etc.)
+    // If so, we just toggle the classes and let the page's CSS control visual changes.
+    // If not, we apply minimal fallback styles.
     var pageDefinesScrolledCss = false;
+    var pageDefinesHideCss = false;
     try {
       for (var i = 0; i < document.styleSheets.length; i++) {
         try {
           var rules = document.styleSheets[i].cssRules || [];
           for (var j = 0; j < rules.length; j++) {
             var txt = rules[j].cssText || '';
-            if (/(\.scrolled|\.nav--hidden|\.hl-scrolled|\.scroll-down)/.test(txt)) {
-              pageDefinesScrolledCss = true; break;
+            if (/(\.scrolled|\.hl-scrolled|\.is-scrolled|\.nav-scrolled|\.header-scrolled|\.active-scroll)/.test(txt)) {
+              pageDefinesScrolledCss = true;
+            }
+            if (/(\.nav--hidden|\.scroll-down|\.hide|\.nav-hidden|\.header-hide)/.test(txt)) {
+              pageDefinesHideCss = true;
             }
           }
         } catch(e2) {}
-        if (pageDefinesScrolledCss) break;
       }
     } catch(e) {}
+
+    // Detect transparent-at-top header: background is transparent or semi-transparent,
+    // position is fixed or sticky (typical overlay-hero pattern).
+    var isFixedOrSticky = cs.position === 'fixed' || cs.position === 'sticky';
+    var bgColor = cs.backgroundColor;
+    var isTransparentAtTop = isFixedOrSticky && (
+      bgColor === 'transparent' || bgColor === 'rgba(0, 0, 0, 0)' ||
+      /rgba\([^,]+,[^,]+,[^,]+,\s*0(\.\d+)?\s*\)/.test(bgColor)
+    );
+
+    // In static exports, transparent-at-top headers with light-colored text (e.g. text-white)
+    // become invisible when the hero background is light. Apply a fallback background
+    // immediately so navigation is always readable. The transparent-hero-overlay effect
+    // requires dynamic JS that can't run in a static export anyway.
+    if (isTransparentAtTop && !pageDefinesScrolledCss) {
+      hdr.style.backgroundColor = 'rgba(255,255,255,0.97)';
+      hdr.style.boxShadow = '0 2px 10px rgba(0,0,0,0.12)';
+      // Fix white/light text colors inside the header so they're readable on the new bg
+      try {
+        hdr.querySelectorAll('[class*="text-white"],[class*="text-light"],[style*="color: white"],[style*="color:#fff"],[style*="color: #fff"]').forEach(function(el) {
+          var elCs = window.getComputedStyle(el);
+          var elColor = elCs.color;
+          // Only override if the computed color is actually white or near-white
+          if (elColor === 'rgb(255, 255, 255)' || elColor === 'rgba(255, 255, 255, 1)' ||
+              /rgba?\(25[0-5],\s*25[0-5],\s*25[0-5]/.test(elColor)) {
+            el.style.color = '#1a1a1a';
+          }
+        });
+      } catch(e) {}
+    }
+
+    // Only add our transition if the page doesn't already define one.
+    var hasTransition = cs.transition && cs.transition !== 'all 0s ease 0s' && cs.transition !== 'none 0s ease 0s 0s';
+    if (!hasTransition) {
+      hdr.style.transition = 'transform 0.35s ease,box-shadow 0.3s ease,padding 0.3s ease,background-color 0.35s ease,color 0.3s ease';
+    }
+
     var lastY = 0, ticking = false;
     window.addEventListener('scroll', function() {
       if (!ticking) {
@@ -812,30 +869,57 @@ function buildAnimationSafetyScript(): string {
           var y = window.pageYOffset;
           var goingDown = y > lastY && y > 80;
           var isScrolled = y > 50;
+
+          // Toggle all common scroll-state classes so the page's CSS can respond
           hdr.classList.toggle('scrolled', isScrolled);
           hdr.classList.toggle('hl-scrolled', isScrolled);
+          hdr.classList.toggle('is-scrolled', isScrolled);
+          hdr.classList.toggle('nav-scrolled', isScrolled);
+          hdr.classList.toggle('header-scrolled', isScrolled);
+          hdr.classList.toggle('active-scroll', isScrolled);
+          hdr.classList.toggle('sticky', isScrolled);
           document.body.classList.toggle('scrolled', isScrolled);
           document.body.classList.toggle('hl-page-scrolled', isScrolled);
+          document.body.classList.toggle('page-scrolled', isScrolled);
+
+          // Hide-on-scroll classes
           if (y > 80) {
             hdr.classList.toggle('scroll-down', goingDown);
             hdr.classList.toggle('scroll-up', !goingDown);
             hdr.classList.toggle('nav--hidden', goingDown);
             hdr.classList.toggle('nav--visible', !goingDown);
             hdr.classList.toggle('hide', goingDown);
-            if (!pageDefinesScrolledCss) hdr.style.transform = goingDown ? 'translateY(-100%)' : '';
+            hdr.classList.toggle('nav-hidden', goingDown);
+            // Fallback transform only if page has no CSS for hiding
+            if (!pageDefinesHideCss) {
+              hdr.style.transform = goingDown ? 'translateY(-100%)' : '';
+            }
           } else {
-            hdr.classList.remove('scroll-down','scroll-up','nav--hidden','nav--visible','hide');
-            if (!pageDefinesScrolledCss) hdr.style.transform = '';
+            hdr.classList.remove('scroll-down','scroll-up','nav--hidden','nav--visible','hide','nav-hidden');
+            if (!pageDefinesHideCss) hdr.style.transform = '';
           }
+
+          // Transparent-at-top header bg: only apply/keep our fallback; never remove it.
+          // (The transparent-hero-overlay effect can't work in static exports — always show bg.)
+          if (isTransparentAtTop && !pageDefinesScrolledCss) {
+            if (!hdr.style.backgroundColor) {
+              hdr.style.backgroundColor = 'rgba(255,255,255,0.97)';
+              hdr.style.boxShadow = '0 2px 10px rgba(0,0,0,0.12)';
+            }
+          }
+
           lastY = y; ticking = false;
         });
         ticking = true;
       }
     }, { passive: true });
-  })();
+
+    // Fire once on load to set correct initial state if page is already scrolled
+    window.dispatchEvent(new Event('scroll'));
+  })(); } catch(e) {}
 
   // ── 13. Back to top button ────────────────────────────────────────────────
-  (function () {
+  try { (function () {
     var backTop = document.querySelector(
       '#back-to-top,#backToTop,.back-to-top,[class*="back-top"],[class*="scroll-top"],' +
       '[class*="go-top"],[class*="to-top"],[aria-label*="top" i],[title*="top" i]'
@@ -852,7 +936,7 @@ function buildAnimationSafetyScript(): string {
       e.preventDefault();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
-  })();
+  })(); } catch(e) {}
 
   // ── 14. Parallax (Jarallax + simple fallback) ─────────────────────────────
   try {
@@ -862,7 +946,7 @@ function buildAnimationSafetyScript(): string {
       jQuery('.jarallax,[data-jarallax]').jarallax({ speed: 0.5 });
     }
   } catch(e) {}
-  (function () {
+  try { (function () {
     var els = document.querySelectorAll('[data-parallax]:not([data-jarallax])');
     if (!els.length) return;
     window.addEventListener('scroll', function() {
@@ -872,10 +956,10 @@ function buildAnimationSafetyScript(): string {
         el.style.transform = 'translateY(' + (y * speed * 0.15) + 'px)';
       });
     }, { passive: true });
-  })();
+  })(); } catch(e) {}
 
   // ── 15. Counter / number animation ───────────────────────────────────────
-  (function () {
+  try { (function () {
     try { if (typeof CountUp !== 'undefined' || typeof countUp !== 'undefined') return; } catch(e) {}
     var counterSel = '[class*="counter"],[class*="count-up"],[data-count],[data-target-number],[class*="stat-number"],[class*="odometer"]';
     var counters = document.querySelectorAll(counterSel);
@@ -898,10 +982,10 @@ function buildAnimationSafetyScript(): string {
       entries.forEach(function(e) { if (e.isIntersecting) animateCount(e.target); });
     }, { threshold: 0.3 });
     counters.forEach(function(el) { obs.observe(el); });
-  })();
+  })(); } catch(e) {}
 
   // ── 16. Progress bar / skill bar animation ────────────────────────────────
-  (function () {
+  try { (function () {
     if (typeof IntersectionObserver === 'undefined') return;
     var bars = document.querySelectorAll('[class*="progress-bar"],[class*="skill-bar"],[class*="skill-fill"],[class*="bar-fill"],[data-progress]');
     if (!bars.length) return;
@@ -917,7 +1001,7 @@ function buildAnimationSafetyScript(): string {
       });
     }, { threshold: 0.2 });
     bars.forEach(function(bar) { obs.observe(bar); });
-  })();
+  })(); } catch(e) {}
 
   // ── 17. Typed.js text typing animation ───────────────────────────────────
   try {
@@ -956,7 +1040,7 @@ function buildAnimationSafetyScript(): string {
   } catch(e) {}
 
   // ── 19. Video: autoplay muted videos in viewport ──────────────────────────
-  (function () {
+  try { (function () {
     if (typeof IntersectionObserver === 'undefined') return;
     var videos = document.querySelectorAll('video[autoplay],video[data-autoplay]');
     if (!videos.length) return;
@@ -968,7 +1052,7 @@ function buildAnimationSafetyScript(): string {
       });
     }, { threshold: 0.25 });
     videos.forEach(function(vid) { vObs.observe(vid); });
-  })();
+  })(); } catch(e) {}
 
   // ── 20. Tooltip init (Tippy / Bootstrap) ─────────────────────────────────
   try {
@@ -982,10 +1066,22 @@ function buildAnimationSafetyScript(): string {
   } catch(e) {}
 
   // ── 21. 3s fallback: force still-invisible elements visible ───────────────
+  // Last-resort safety net. Fires when animation libraries failed to load,
+  // or loaded but never ran init() / never animated anything.
+  // Detection uses typeof checks (not class presence) — exported HTML has
+  // 'aos-init' on all [data-aos] elements so class checks would give false positives.
   setTimeout(function() {
-    var aosRunning = typeof AOS !== 'undefined' && !!document.querySelector('[data-aos].aos-init');
-    if (!aosRunning) {
-      document.querySelectorAll('[data-aos]').forEach(function(el) {
+    // AOS fallback: force visible if AOS.js never loaded OR loaded but never animated
+    var aosJsLoaded = typeof AOS !== 'undefined' && typeof AOS.init === 'function';
+    var aosElements = document.querySelectorAll('[data-aos]');
+    var aosDidAnimate = aosJsLoaded && !!document.querySelector('[data-aos].aos-animate');
+    if (!aosJsLoaded || (!aosDidAnimate && aosElements.length > 0)) {
+      // If aosJsLoaded but didn't animate, try one last init then check again
+      if (aosJsLoaded && !aosDidAnimate) {
+        try { AOS.init({ once: false, offset: 50 }); AOS.refresh(); } catch(e) {}
+      }
+      // Force visible any still-invisible elements
+      aosElements.forEach(function(el) {
         var cs = window.getComputedStyle(el);
         if (parseFloat(cs.opacity) < 0.1 || cs.visibility === 'hidden') {
           el.style.setProperty('opacity','1','important');
@@ -995,22 +1091,51 @@ function buildAnimationSafetyScript(): string {
         }
       });
     }
-    document.querySelectorAll('[data-sal],[data-wow-duration],[data-sr-id],.wow:not(.animated)').forEach(function(el) {
-      var cs = window.getComputedStyle(el);
-      if (parseFloat(cs.opacity) < 0.1 || cs.visibility === 'hidden') {
-        el.style.setProperty('opacity','1','important');
-        el.style.setProperty('transform','none','important');
-        el.style.setProperty('visibility','visible','important');
-        el.style.setProperty('transition','none','important');
-      }
-    });
-    document.querySelectorAll('[data-element-type],.hl-element-wrapper,.hl-page-section').forEach(function(el) {
-      var cs = window.getComputedStyle(el);
-      if (parseFloat(cs.opacity) < 0.05) el.style.setProperty('opacity','1','important');
-      if (cs.display === 'none' && el.closest('[data-element-type="section"],.hl-page-section')) {
-        el.style.setProperty('display','block','important');
-      }
-    });
+
+    // WOW fallback
+    var wowJsLoaded = typeof WOW !== 'undefined';
+    if (!wowJsLoaded) {
+      document.querySelectorAll('.wow:not(.animated),[data-wow-duration]').forEach(function(el) {
+        var cs = window.getComputedStyle(el);
+        if (parseFloat(cs.opacity) < 0.1 || cs.visibility === 'hidden') {
+          el.style.setProperty('opacity','1','important');
+          el.style.setProperty('visibility','visible','important');
+          el.style.setProperty('transition','none','important');
+        }
+      });
+    }
+
+    // SAL / ScrollReveal fallback
+    var salJsLoaded = typeof sal !== 'undefined' || typeof ScrollReveal !== 'undefined';
+    if (!salJsLoaded) {
+      document.querySelectorAll('[data-sal],[data-sr-id]').forEach(function(el) {
+        var cs = window.getComputedStyle(el);
+        if (parseFloat(cs.opacity) < 0.1 || cs.visibility === 'hidden') {
+          el.style.setProperty('opacity','1','important');
+          el.style.setProperty('transform','none','important');
+          el.style.setProperty('visibility','visible','important');
+          el.style.setProperty('transition','none','important');
+        }
+      });
+    }
+
+    // GHL element wrappers — force-reveal any that are still hidden at 3s.
+    // IMPORTANT: do NOT check body.classList.contains('hl-page-loaded') here.
+    // That class is baked into the captured HTML from Playwright and is always present,
+    // even when GHL's runtime never executed on the Vercel-deployed page (false positive).
+    // Only use dynamic evidence — things that change AFTER the page loaded on Vercel:
+    var ghlRuntimeRan = !!document.querySelector('[data-aos].aos-animate') ||
+                        !!document.querySelector('.wow.animated') ||
+                        !!document.querySelector('[data-sal][data-sal-state="animated"]');
+    if (!ghlRuntimeRan) {
+      document.querySelectorAll('[data-element-type],.hl-element-wrapper,.hl-page-section').forEach(function(el) {
+        var cs = window.getComputedStyle(el);
+        if (parseFloat(cs.opacity) < 0.05) el.style.setProperty('opacity','1','important');
+        if (cs.display === 'none' && el.closest('[data-element-type="section"],.hl-page-section')) {
+          el.style.setProperty('display','block','important');
+        }
+      });
+    }
   }, 3000);
 })();
 </script>`;
@@ -1088,12 +1213,19 @@ function buildStaticHtml(
   // Safety overrides placed as inline <style> at end of <head> so they appear AFTER
   // any GHL inline <style> blocks that may use opacity:0 !important on body/html.
   // A linked stylesheet (ghl-styles.css) loses to later inline styles in cascade order.
+  // GHL's page builder runtime now runs in the exported page (msgsndr.com scripts preserved).
+  // These CSS rules are last-resort fallbacks — they activate only when specific library
+  // state markers are absent (i.e. the library never initialized at all).
+  // Broad !important overrides like [data-element-type]{visibility:visible!important} are
+  // intentionally removed to avoid interfering with GHL's own animation system.
   const inlineSafetyStyle = `<style>
-html,body{opacity:1!important;visibility:visible!important}
-[data-element-type]{visibility:visible!important}
+html,body{opacity:1!important}
 .hl-page-section{display:block!important}
+/* AOS fallback: dormant when aos-init is present on exported elements */
 [data-aos]:not(.aos-init){opacity:1!important;transform:none!important;visibility:visible!important}
+/* SAL fallback: fires only if SAL never ran */
 [data-sal]:not([data-sal-state]){opacity:1!important;transform:none!important;visibility:visible!important}
+/* WOW fallback: fires only if WOW never ran */
 .wow:not(.animated):not(.wow-animated){visibility:visible!important;opacity:1!important}
 [class*="animate__"][class*="animate__delay-"]{animation-play-state:running!important}
 /* Modals hidden by default — JS opens them */
@@ -1103,8 +1235,6 @@ html,body{opacity:1!important;visibility:visible!important}
 [data-element-type="popup"]:not(.show):not(.active):not(.open){display:none!important}
 /* Open modals always on top */
 .modal.show,.modal.active,.popup.show,.popup.active,.hl-popup.show,.hl-popup.active{display:flex!important;z-index:99999}
-/* Carousel slides: visible by default (Swiper/Owl/Slick set display themselves) */
-.swiper-slide,.owl-item,.slick-slide,.carousel-item{visibility:visible!important}
 </style>`;
 
   return `<!DOCTYPE html>
@@ -1176,20 +1306,29 @@ export class PageConverter {
 
     onProgress?.("Generando HTML estático completo con scripts...");
 
-    // Build JS URL map: original src → local /assets/ path
+    // Build JS URL map: original src → local /assets/ path.
+    // GHL CDN scripts (msgsndr.com, leadconnectorhq.com) are intentionally NOT remapped
+    // to /assets/. These scripts use document.currentScript.src to determine their CDN base
+    // URL and make relative fetches (config, modules) from that base. When served from
+    // /assets/ on Vercel those fetches resolve to non-existent Vercel paths → runtime crash
+    // → no animations, no button behaviors. Keep them at their original CDN URLs.
+    const GHL_CDN_SCRIPT_DOMAINS = ["msgsndr.com", "leadconnectorhq.com"];
     const jsUrlMap = new Map<string, string>();
     for (const asset of extracted.scripts) {
+      if (GHL_CDN_SCRIPT_DOMAINS.some((d) => asset.originalUrl.includes(d))) continue;
       jsUrlMap.set(asset.originalUrl, `/assets/${path.basename(asset.localPath)}`);
     }
 
-    // Re-add scripts that were downloaded as assets but whose HTML <script> tags were removed
-    // (cleanAndGetHtml strips all msgsndr.com script tags so GHL platform widgets don't run,
-    // but this also removes self-contained libs like AOS.js or Swiper.js hosted on GHL's CDN).
-    // We recover them here so they're served from /assets/ and still run on Vercel.
+    // Recover any scripts that were captured by Playwright's route handler but whose
+    // <script> tags were nevertheless removed from the HTML (e.g. form_embed / chat widgets
+    // stripped in cleanAndGetHtml). GHL's page builder scripts now stay in orderedScripts
+    // via HtmlParser, so this mainly catches edge cases like scripts injected via JS
+    // (document.createElement) rather than static <script> tags.
     const GHL_PLATFORM_PATTERNS = [
-      "/js/form_embed", "form_embed.js", "/widget.js",
-      "/chat", "/messenger", "/hl-chat",
-      "gohighlevel.com/js", "leadconnectorhq.com/js",
+      "form_embed", "form-embed.js", "widget.js",
+      "hl-chat", "hl-messenger", "msgsndr-chat",
+      "/chat/", "/messenger/",
+      "gohighlevel.com/js", "leadconnectorhq.com/js", "leadconnectorhq.com/widget",
     ];
     const referencedSrcs = new Set(
       parsed.orderedScripts.filter((s) => s.kind === "external").map((s) => s.value)
@@ -1203,13 +1342,15 @@ export class PageConverter {
       )
       .map((a) => ({ kind: "external" as const, value: a.originalUrl, attrs: {} }));
 
-    // Absolute CDN CSS links to re-add as <link> tags.
-    // Covers fonts / icon libs (e.g. Google Fonts) that benefit from CDN subsets.
-    // GHL-specific domains are excluded (see GHL_CDN_DOMAINS) — their CSS is already
-    // embedded in ghl-styles.css and their signed URLs expire within hours.
-    const cdnCssLinks = extracted.externalCssUrls.filter(
-      (u) => u.startsWith("http") && !GHL_CDN_DOMAINS.some((d) => u.includes(d))
-    );
+    // Re-add ALL absolute CSS URLs as live <link> tags.
+    // Why include GHL CDN URLs (msgsndr.com, vibepreview.com, etc.):
+    //   - Playwright exports: CSS is already in ghl-styles.css (CSSOM dump). The live <link> is a
+    //     harmless redundant fallback (browser uses whichever rule has higher specificity).
+    //   - Paste-HTML exports: server-side fetch of GHL CDN URLs often fails (Cloudflare blocks
+    //     server IPs). The live <link> is the ONLY source of CSS for those exports. The user's
+    //     real browser passes CF bot detection when loading the deployed page, so these links work.
+    // Signed GHL URLs may expire after hours/days, but ghl-styles.css provides the permanent backup.
+    const cdnCssLinks = extracted.externalCssUrls.filter((u) => u.startsWith("http"));
 
     const fullHtml = buildStaticHtml(
       headHtml,
@@ -1266,9 +1407,12 @@ export class PageConverter {
     }
     const allAssets = Array.from(assetMap.values());
 
-    // Build JS URL → local path map for script src rewriting
+    // Build JS URL → local path map for script src rewriting.
+    // Same reasoning as single-page convert: GHL CDN scripts stay at CDN URLs.
+    const GHL_CDN_SCRIPT_DOMAINS_SITE = ["msgsndr.com", "leadconnectorhq.com"];
     const jsUrlMap = new Map<string, string>();
     for (const asset of allAssets) {
+      if (GHL_CDN_SCRIPT_DOMAINS_SITE.some((d) => asset.originalUrl.includes(d))) continue;
       if (
         asset.mimeType?.startsWith("text/javascript") ||
         asset.mimeType?.startsWith("application/javascript") ||
@@ -1304,9 +1448,7 @@ export class PageConverter {
       if (fetchedCss) allInlineCss = allInlineCss ? `${allInlineCss}\n\n${fetchedCss}` : fetchedCss;
     }
 
-    const cdnCssLinks = allExternalCssUrls.filter(
-      (u) => u.startsWith("http") && !GHL_CDN_DOMAINS.some((d) => u.includes(d))
-    );
+    const cdnCssLinks = allExternalCssUrls.filter((u) => u.startsWith("http"));
 
     const files: GeneratedFile[] = [];
 
@@ -1315,9 +1457,10 @@ export class PageConverter {
 
     // GHL platform script patterns — never re-add these even if downloaded
     const GHL_PLATFORM_PATTERNS_SITE = [
-      "/js/form_embed", "form_embed.js", "/widget.js",
-      "/chat", "/messenger", "/hl-chat",
-      "gohighlevel.com/js", "leadconnectorhq.com/js",
+      "form_embed", "form-embed.js", "widget.js",
+      "hl-chat", "hl-messenger", "msgsndr-chat",
+      "/chat/", "/messenger/",
+      "gohighlevel.com/js", "leadconnectorhq.com/js", "leadconnectorhq.com/widget",
     ];
 
     // Static HTML page per URL

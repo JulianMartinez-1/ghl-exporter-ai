@@ -20,17 +20,34 @@ export interface ParsedHtml {
   htmlAttribs: Record<string, string>;  // class, style preserved on <html>
 }
 
+// Scripts to strip from the final export.
+// IMPORTANT: Do NOT add "msgsndr.com" here.
+// GHL's page builder runtime (animations, header scroll, tabs, sliders, etc.)
+// lives on the msgsndr.com CDN. Blocking it destroys all interactive behaviors.
+// Only block known tracking/CRM/chat scripts that break a standalone deployment.
 const BLOCKED_SCRIPT_PATTERNS = [
   "googletagmanager",
   "google-analytics",
   "facebook.net",
+  "connect.facebook.net",
   "hotjar",
   "intercom",
-  "msgsndr.com",
-  "gohighlevel.com",
   "drift.com",
   "crisp.chat",
   "tawk.to",
+  "segment.com/analytics",
+  "clarity.ms",
+  // GHL-specific: CRM/chat/form widgets — these depend on GHL's backend
+  // and do not contribute to visual animations or page behavior.
+  "form_embed",
+  "form-embed.js",
+  "hl-chat",
+  "hl-messenger",
+  "msgsndr-chat",
+  // GHL app dashboard scripts (not CDN — these are GHL's internal routing)
+  "gohighlevel.com/js",
+  "leadconnectorhq.com/js",
+  "leadconnectorhq.com/widget",
 ];
 
 export class HtmlParser {
@@ -72,7 +89,6 @@ export class HtmlParser {
         const isTracking =
           content.includes("gtag(") ||
           content.includes("fbq(") ||
-          content.includes("dataLayer") ||
           content.includes("_hsq") ||
           content.includes("Intercom") ||
           BLOCKED_SCRIPT_PATTERNS.some((p) => content.includes(p));
@@ -162,57 +178,83 @@ export class HtmlParser {
       '#hl-chat-widget-container, .hl-chat-widget, ' +
       '[id="hl-messenger"], [class="hl-messenger"]'
     ).remove();
-    $('[src*="msgsndr.com"]').remove();
-    $('link[rel="stylesheet"][href*="msgsndr.com"]').remove();
 
-    // Force animation-library elements to their final visible state.
-    // Mirrors what the Playwright evaluate step does for live captures.
-    // For pasted HTML (no Playwright), this is the only pass.
-    // AOS: add aos-init + aos-animate so AOS CSS renders elements visible
+    // Remove GHL CDN CSS links — their content is already embedded in ghl-styles.css.
+    // Do NOT remove script tags from msgsndr.com here: GHL's page builder runtime
+    // (animations, header scroll, tabs, sliders) lives on that CDN and must execute.
+    $('link[rel="stylesheet"][href*="msgsndr.com"]').remove();
+    $('link[rel="stylesheet"][href*="leadconnectorhq.com"]').remove();
+    // Only remove msgsndr.com scripts that are known CRM/chat/form widgets.
+    // The page builder bundle and animation scripts must remain.
+    $('script[src*="form_embed"]').remove();
+    $('script[src*="hl-chat"]').remove();
+    $('script[src*="hl-messenger"]').remove();
+    $('script[src*="msgsndr-chat"]').remove();
+
+    // Restore animation-library elements to their ready-to-animate state.
+    // Goal: preserve data-aos / data-wow / data-sal attributes so the libraries
+    // re-initialize on Vercel and scroll animations actually play.
+    //
+    // AOS: keep 'aos-init' (prevents CSS fallback flash before AOS.js loads).
+    //       remove 'aos-animate' so AOS re-adds it as the user scrolls.
+    //       strip any !important inline overrides from a Playwright force-visible pass.
+    //       strip inline opacity:0 — AOS CSS sets the initial state; inline 0 would override
+    //       the .aos-animate rule since inline beats CSS selectors.
     $("[data-aos]").each((_, el) => {
       const existing = $(el).attr("class") ?? "";
-      if (!existing.includes("aos-init")) $(el).attr("class", `${existing} aos-init aos-animate`.trim());
+      const cleaned = existing
+        .split(/\s+/)
+        .filter((c) => c !== "aos-animate") // remove animated state; keep aos-init
+        .join(" ")
+        .trim();
+      // Ensure aos-init is present (prevents CSS fallback from firing prematurely)
+      const withInit = cleaned.includes("aos-init") ? cleaned : (cleaned ? `${cleaned} aos-init` : "aos-init");
+      $(el).attr("class", withInit);
+
       const style = $(el).attr("style") ?? "";
-      let fixedStyle = style;
-      // Remove opacity:0 (AOS initial state set when page was first rendered)
-      if (/opacity\s*:\s*0/.test(fixedStyle)) {
-        fixedStyle = fixedStyle.replace(/\bopacity\s*:\s*0[^;]*;?\s*/g, "");
-      }
-      // Remove opacity:1!important / transform:none!important / visibility:visible!important
-      // injected by our Playwright evaluate step. Keeping these !important inline styles
-      // prevents AOS from controlling opacity on the deployed site (scroll animations never play).
-      // The safety script in buildAnimationSafetyScript handles fallback if AOS fails to load.
-      fixedStyle = fixedStyle
-        .replace(/\bopacity\s*:\s*1\s*!important\s*;?\s*/g, "")
+      const fixed = style
+        .replace(/\bopacity\s*:\s*[01][^;]*!important\s*;?\s*/g, "") // strip !important overrides
         .replace(/\btransform\s*:\s*none\s*!important\s*;?\s*/g, "")
         .replace(/\bvisibility\s*:\s*visible\s*!important\s*;?\s*/g, "")
+        .replace(/\bopacity\s*:\s*0[^;]*;?\s*/g, "")  // inline opacity:0 would override AOS .aos-animate rule
         .trim();
-      if (fixedStyle) {
-        $(el).attr("style", fixedStyle);
-      } else {
-        $(el).removeAttr("style");
-      }
+      if (fixed) $(el).attr("style", fixed);
+      else $(el).removeAttr("style");
     });
-    // WOW.js
+
+    // WOW.js: remove 'animated'/'wow-animated' so WOW re-triggers on scroll.
+    // Keep 'wow' class and all data-wow-* attributes intact.
     $(".wow").each((_, el) => {
       const existing = $(el).attr("class") ?? "";
-      if (!existing.includes("animated")) $(el).attr("class", `${existing} animated wow-animated`.trim());
+      const cleaned = existing
+        .split(/\s+/)
+        .filter((c) => c !== "animated" && c !== "wow-animated")
+        .join(" ")
+        .trim();
+      if (cleaned) $(el).attr("class", cleaned);
     });
-    // SAL / ScrollReveal
-    $("[data-sal]").attr("data-sal-state", "animated");
-    // Remove inline opacity:0 from any element that has it (GHL stagger / custom init)
+
+    // SAL / ScrollReveal: remove state attribute so SAL re-animates on scroll.
+    // Keep data-sal and all data-sal-* duration/easing attributes.
+    $("[data-sal]").removeAttr("data-sal-state");
+
+    // Strip inline opacity:0 / visibility:hidden from non-animation elements.
+    // These come from GHL stagger / custom init patterns that depend on GHL platform JS.
+    // Animation elements are skipped — their initial state is set by their library's CSS,
+    // which is embedded in ghl-styles.css.
     $("[style]").each((_, el) => {
+      if ($(el).attr("data-aos") || $(el).hasClass("wow") || $(el).attr("data-sal")) return;
       const style = $(el).attr("style") ?? "";
-      if (/\bopacity\s*:\s*0/.test(style)) {
-        const fixed = style.replace(/\bopacity\s*:\s*0[^;]*;?\s*/g, "").trim();
-        if (fixed) $(el).attr("style", fixed);
-        else $(el).removeAttr("style");
+      let fixed = style;
+      if (/\bopacity\s*:\s*0/.test(fixed)) {
+        fixed = fixed.replace(/\bopacity\s*:\s*0[^;]*;?\s*/g, "");
       }
-      if (/\bvisibility\s*:\s*hidden/.test(style)) {
-        const fixed = style.replace(/\bvisibility\s*:\s*hidden[^;]*;?\s*/g, "").trim();
-        if (fixed) $(el).attr("style", fixed);
-        else $(el).removeAttr("style");
+      if (/\bvisibility\s*:\s*hidden/.test(fixed)) {
+        fixed = fixed.replace(/\bvisibility\s*:\s*hidden[^;]*;?\s*/g, "");
       }
+      fixed = fixed.trim();
+      if (fixed) $(el).attr("style", fixed);
+      else $(el).removeAttr("style");
     });
 
     const bodyContent = $("body").html() ?? "";
