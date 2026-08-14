@@ -154,15 +154,16 @@ html, body { opacity: 1 !important; }
   visibility: visible !important;
 }
 
-/* WOW.js: fallback if WOW.js never loaded */
-.wow:not(.animated):not(.wow-animated) { visibility: visible !important; opacity: 1 !important; }
+/* WOW.js: CSS fallback intentionally removed.
+   html-parser always strips .animated/.wow-animated so the rule .wow:not(.animated){...}
+   would match ALL WOW elements at load time, revealing them immediately and destroying
+   the scroll-reveal animation. The 3-second JS fallback (section 21) handles the
+   "WOW.js failed to load" case correctly by checking typeof WOW before force-revealing. */
 
-/* SAL: fallback if SAL never ran (state attribute missing = library never initialized) */
-[data-sal]:not([data-sal-state]) {
-  opacity: 1 !important;
-  transform: none !important;
-  visibility: visible !important;
-}
+/* SAL: CSS fallback intentionally removed.
+   html-parser always strips data-sal-state so [data-sal]:not([data-sal-state]) would
+   always match and force-reveal all SAL elements immediately, breaking scroll animations.
+   The 3-second JS fallback handles the "SAL failed to load" case via typeof sal check. */
 
 /* Animate.css: ensure delayed animations actually play */
 [class*="animate__"][class*="animate__delay-"] { animation-play-state: running !important; }
@@ -1233,10 +1234,9 @@ html,body{opacity:1!important}
 .hl-page-section{display:block!important}
 /* AOS fallback: dormant when aos-init is present on exported elements */
 [data-aos]:not(.aos-init){opacity:1!important;transform:none!important;visibility:visible!important}
-/* SAL fallback: fires only if SAL never ran */
-[data-sal]:not([data-sal-state]){opacity:1!important;transform:none!important;visibility:visible!important}
-/* WOW fallback: fires only if WOW never ran */
-.wow:not(.animated):not(.wow-animated){visibility:visible!important;opacity:1!important}
+/* SAL/WOW CSS fallbacks intentionally removed: html-parser strips data-sal-state and
+   .animated so those selectors always match, revealing elements immediately and breaking
+   scroll animations. The 3s JS fallback in buildAnimationSafetyScript handles both cases. */
 [class*="animate__"][class*="animate__delay-"]{animation-play-state:running!important}
 /* Generic modals hidden by default (JS opens them). [data-element-type="popup"] excluded:
    those are GHL AI Builder popups managed by GHL's runtime with its own class toggle. */
