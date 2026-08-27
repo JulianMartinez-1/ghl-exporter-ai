@@ -1,11 +1,3 @@
-export interface ExtractionContext {
-  pageUrl: string;
-  pageId: string;
-  locationId: string;
-  accessToken: string;
-  sourceName: string;
-}
-
 export interface RawAsset {
   url: string;
   type: "image" | "font" | "css" | "js" | "svg" | "video" | "other";
@@ -26,5 +18,5 @@ export interface ExtractionResult {
     favicon?: string;
     lang: string;
   };
-  extractionMethod: "api" | "playwright" | "hybrid" | "fetch";
+  extractionMethod: "playwright" | "fetch";
 }

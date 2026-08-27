@@ -1,75 +1,10 @@
-export type { ExportStatus, ExtractionMethod, SourceType, LogLevel } from "@prisma/client";
+export type { ExportStatus, ExtractionMethod, LogLevel } from "@prisma/client";
 
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
   message?: string;
-}
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  hasMore: boolean;
-}
-
-export interface GhlLocation {
-  id: string;
-  name: string;
-  companyId: string;
-  email?: string;
-  phone?: string;
-  address?: string;
-  website?: string;
-  timezone?: string;
-  logoUrl?: string;
-}
-
-export interface GhlFunnel {
-  id: string;
-  locationId: string;
-  name: string;
-  type: string;
-  url?: string;
-  domain?: string;
-  createdAt: string;
-  updatedAt: string;
-  pages?: GhlPage[];
-}
-
-export interface GhlWebsite {
-  id: string;
-  locationId: string;
-  name: string;
-  url?: string;
-  domain?: string;
-  createdAt: string;
-  updatedAt: string;
-  pages?: GhlPage[];
-}
-
-export interface GhlPage {
-  id: string;
-  locationId: string;
-  funnelId?: string;
-  websiteId?: string;
-  name: string;
-  stepId?: string;
-  url?: string;
-  previewUrl?: string;
-  path?: string;
-  title?: string;
-  description?: string;
-  keywords?: string;
-  og?: Record<string, string>;
-  pixels?: string[];
-  customHead?: string;
-  customBody?: string;
-  builderVersion?: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface ExtractedPage {
@@ -82,7 +17,7 @@ export interface ExtractedPage {
   videos: ExtractedAsset[];
   metadata: PageMetadata;
   components: DetectedComponent[];
-  method: "api" | "playwright" | "hybrid" | "fetch";
+  method: "playwright" | "fetch" | "html-pasted";
 }
 
 export interface ExtractedAsset {
@@ -140,26 +75,15 @@ export interface GeneratedFile {
 
 export interface ExportJobData {
   exportId: string;
-  userId: string;
-  connectionId: string;
-  sourceType: string;
-  sourceId: string;
-  pageId: string;
-  pageUrl?: string;
+  url: string;
   rawHtml?: string;
 }
 
 export interface GitHubRepoResult {
   name: string;
+  owner: string;
   fullName: string;
   url: string;
   cloneUrl: string;
   defaultBranch: string;
-}
-
-export interface VercelDeployResult {
-  projectId: string;
-  deploymentId: string;
-  url: string;
-  state: string;
 }

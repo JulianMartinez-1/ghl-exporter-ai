@@ -15,8 +15,8 @@ echo "=== 2. Installing Node.js 20 ==="
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs
 
-echo "=== 3. Installing build tools, Redis, Nginx ==="
-apt-get install -y build-essential git nginx redis-server
+echo "=== 3. Installing build tools, Nginx ==="
+apt-get install -y build-essential git nginx
 
 echo "=== 4. Installing PM2 ==="
 npm install -g pm2
@@ -34,10 +34,7 @@ npm install --production=false
 
 echo "=== 8. IMPORTANT: Create .env.production before continuing ==="
 echo "Copy your environment variables to: $APP_DIR/.env.production"
-echo "Required vars: DATABASE_URL, DIRECT_URL, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,"
-echo "  CLERK_SECRET_KEY, CLERK_WEBHOOK_SECRET, GHL_CLIENT_ID, GHL_CLIENT_SECRET,"
-echo "  REDIS_URL, GITHUB_TOKEN, GITHUB_ORG, VERCEL_TOKEN, ENCRYPTION_KEY,"
-echo "  NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY"
+echo "Required vars: DATABASE_URL, DIRECT_URL, GITHUB_TOKEN, GITHUB_ORG"
 echo ""
 echo "After creating .env.production, run:"
 echo "  cd $APP_DIR && npx prisma generate && npm run db:push"

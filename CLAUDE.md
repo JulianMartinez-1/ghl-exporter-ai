@@ -2,11 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## What this app does
+
+Single-purpose internal tool: paste a public GoHighLevel Funnel/Website URL →
+it gets crawled and cloned 1:1 into a static site → pushed to a new GitHub
+repo. No auth, no dashboard, no GHL OAuth connection, no Vercel deploy. The
+resulting repo is meant to be hosted on Hostinger (or any static host).
+
 ## Commands
 
 ```bash
-npm run dev          # Start Next.js dev server (Turbopack)
-npm run worker       # Start BullMQ export worker — must run in a separate terminal
+npm run dev          # Start Next.js dev server (Turbopack) — single process, no worker
 npm run build        # Production build
 npm run lint         # ESLint
 
@@ -16,52 +22,64 @@ npm run db:migrate   # Create and apply a named migration
 npm run db:studio    # Open Prisma Studio GUI
 ```
 
-**Two-process architecture:** The Next.js server and the BullMQ worker are separate processes. Exports submitted via the UI stay in PENDING status unless the worker is running. The worker connects to Redis directly and processes jobs from the `exports` queue with concurrency 3.
+**Single-process architecture.** There is no queue/worker. `POST /api/exports`
+creates the `Export` row and calls `after()` (from `next/server`) to run the
+pipeline after the HTTP response is sent, in the same Next.js process. The UI
+polls `GET /api/exports/[id]` for status/progress/logs.
 
 ## Architecture
 
 ### Stack
-Next.js 15 (App Router, TypeScript, Tailwind), Clerk for auth, Prisma + PostgreSQL, BullMQ + Redis, Supabase Storage, Octokit (GitHub), Vercel API, Playwright for headless rendering.
+Next.js 15 (App Router, TypeScript, Tailwind), Prisma + PostgreSQL (only for
+`Export`/`ExportLog` history), Octokit (GitHub), Playwright + Cheerio for
+crawling/extraction, JSZip for the local backup download.
 
 ### Module layout (`src/modules/`)
 | Module | Responsibility |
 |---|---|
-| `gohighlevel/` | GHL API client (`GhlApiClient`), OAuth service, funnels/websites/media services |
-| `extractor/` | `ExtractionOrchestrator` — tries API metadata first, falls back to Playwright; `WebsiteCrawler` for full-site crawls |
-| `converter/` | `PageConverter` — takes an `ExtractedPage` and produces a `GeneratedProject` (static HTML/CSS files); `ComponentDetector` classifies page sections |
-| `github/` | `GitHubService` — creates repos and pushes files via Git Data API in batches of 20 |
-| `vercel/` | `VercelService` — deploys files directly without a GitHub↔Vercel connection |
-| `storage/` | `SupabaseStorageService` — uploads a ZIP of the generated project as a backup |
-| `jobs/` | BullMQ queue definition, worker entry point, `export.processor.ts` |
-| `logs/` | `ExportLogger` — writes `ExportLog` rows to DB per export |
-| `auth/` | Clerk webhook helpers for user sync |
+| `extractor/` | `WebsiteCrawler` — crawls a site/funnel from a public URL (same-origin links, up to `CRAWL_MAX_PAGES`), using `PlaywrightExtractor` per page and `ResourceNormalizer` for assets |
+| `converter/` | `PageConverter` — takes a `CrawledSite` (or a single `ExtractedPage` for the pasted-HTML fallback) and produces a `GeneratedProject`: plain static HTML/CSS/JS files, no build step |
+| `github/` | `GitHubService` — creates the repo (tries `createInOrg` when `GITHUB_ORG` is set, falls back to the authenticated user's personal account) and pushes files via the Git Data API in batches of 20 |
+| `export/` | `run-export.ts` (`runExport()` — the whole pipeline) + `ExportLogger` (writes `ExportLog` rows polled by the UI) |
 
-### Export pipeline (`src/modules/jobs/processors/export.processor.ts`)
-`runExport()` is the core function — called by both the BullMQ worker wrapper and directly from the API via Next.js `unstable_after()` as a Redis-less fallback:
+### Export pipeline (`src/modules/export/run-export.ts`)
+`runExport()` is called directly from the API route via `after()` — no queue:
 
-1. Load `GhlConnection` from DB, decrypt access token
-2. **Extraction** — three paths depending on the request:
-   - **Pasted HTML** (`rawHtml` provided): parse with Cheerio, no network calls
-   - **URL crawl** (`sourceId === "url-direct"` + `pageUrl`): `WebsiteCrawler` with Playwright, up to 25 pages
-   - **GHL API → Playwright**: fetch page metadata from GHL, try API extraction, fall back to headless rendering
-3. **Conversion**: `PageConverter.convert()` or `convertSite()` → `GeneratedProject`
-4. **Supabase upload** (optional, non-blocking — skipped if env vars are placeholders)
-5. **GitHub**: create repo via `ensureRepoName()` (avoids collisions), push all files in batches
-6. **Vercel**: deploy files directly, poll until deployment is ready
-7. Update `Export` record status at each step (EXTRACTING → CONVERTING → PUSHING_TO_GITHUB → DEPLOYING → COMPLETED/FAILED)
+1. If the `Export` row has pasted HTML (manual fallback, e.g. after a failed
+   crawl): parse with Cheerio, convert as a single page.
+2. Otherwise: `WebsiteCrawler.crawl(url, CRAWL_MAX_PAGES)` — crawls the whole
+   site/funnel, same-origin only.
+3. `PageConverter.convert()` / `convertSite()` → `GeneratedProject`.
+4. Build a ZIP locally with JSZip, save to `EXPORT_OUTPUT_DIR` (default
+   `./data/exports/<id>.zip`) — downloadable from the UI.
+5. `GitHubService`: `ensureRepoName()` (avoids collisions) → `createRepository()`
+   → `pushFiles()`.
+6. Update `Export.status` at each step (EXTRACTING → CONVERTING →
+   PUSHING_TO_GITHUB → COMPLETED/FAILED).
 
-### Auth & protected routes
-Clerk middleware in `src/middleware.ts` protects `/dashboard/**`, `/exports/**`, `/deploys/**`, `/repositories/**`, `/settings/**`, `/logs/**`. All other routes (including the landing page and GHL OAuth callback) are public.
-
-### GHL OAuth flow
-`/api/ghl/oauth` → redirects to GHL marketplace → `/api/ghl/oauth/callback` stores encrypted `accessToken`/`refreshToken` in `GhlConnection`. The GHL API base is `https://services.leadconnectorhq.com` with version header `2021-07-28`.
+### Routes
+All public, no middleware:
+- `POST /api/exports` — create + kick off a run
+- `GET /api/exports` — history (last 50)
+- `GET /api/exports/[id]` — status, progress, logs
+- `GET /api/exports/[id]/download` — the local ZIP
+- `POST /api/exports/[id]/retry` — retry a FAILED export with manually pasted HTML
 
 ### Database models (Prisma)
-- `User` — synced from Clerk via webhook
-- `GhlConnection` — one per GHL location; tokens stored encrypted
-- `Export` — tracks a single page/site export with its status, progress %, and output URLs
-- `ExportLog` — append-only log rows per export (shown in real-time in the UI)
-- `ApiKey` — hashed API keys for programmatic access
+- `Export` — one row per clone job: `url`, `name` (repo slug), `status`,
+  `progress`, `extractionMethod`, `pagesCount`, `githubRepoUrl`/`githubRepoName`,
+  `zipPath`, `errorMessage`, timestamps. `rawHtml` holds manually-pasted HTML
+  (either the initial submission or a retry after a failed crawl).
+- `ExportLog` — append-only log rows per export, polled by the UI.
 
 ### Key env vars
-`DATABASE_URL`, `DIRECT_URL` (Prisma), `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET`, `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET`, `REDIS_URL`, `GITHUB_TOKEN`, `GITHUB_ORG`, `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY` (token encryption).
+`DATABASE_URL`, `DIRECT_URL` (Prisma), `GITHUB_TOKEN`, `GITHUB_ORG` (optional
+— empty means personal account), `EXPORT_OUTPUT_DIR`, `CRAWL_MAX_PAGES`.
+
+### What was intentionally removed
+Clerk auth, the multi-tenant dashboard, GoHighLevel OAuth + API browsing
+(Funnel/Website picker), Vercel deploy, Supabase Storage, BullMQ/Redis. See
+git history before the "cambio total" rewrite if any of that needs to be
+resurrected — the crawler/converter/GitHub pipeline itself is unchanged and
+battle-tested against real GHL sites (see the `fix:` commits fixing popups,
+WOW.js/SAL animations, and script load order).

@@ -2,7 +2,7 @@ import path from "path";
 import { HtmlParser, type ScriptEntry } from "./html-parser";
 import { ResourceNormalizer } from "../extractor/resource-normalizer";
 import {
-  generateVercelJson,
+  generateExportedReadme,
   generateExportedPackageJson,
 } from "./generators/page.generator";
 import { slugify } from "@/lib/utils";
@@ -1383,7 +1383,7 @@ export class PageConverter {
 
     files.push({ path: "index.html", content: fullHtml });
     files.push({ path: "ghl-styles.css", content: buildGhlStylesCss(inlineCss) });
-    files.push({ path: "vercel.json", content: generateVercelJson() });
+    files.push({ path: "README.md", content: generateExportedReadme(projectName, 1) });
 
     for (const asset of allAssets) {
       if (asset.content) {
@@ -1470,7 +1470,6 @@ export class PageConverter {
     const files: GeneratedFile[] = [];
 
     files.push({ path: "ghl-styles.css", content: buildGhlStylesCss(allInlineCss) });
-    files.push({ path: "vercel.json", content: generateVercelJson() });
 
     // GHL platform script patterns — never re-add these even if downloaded
     const GHL_PLATFORM_PATTERNS_SITE = [
@@ -1532,6 +1531,8 @@ export class PageConverter {
       }
     }
 
+    files.push({ path: "README.md", content: generateExportedReadme(projectName, site.pages.length) });
+
     onProgress?.(`Proyecto estático generado: ${files.length} archivos.`);
 
     const slug = slugify(projectName);
@@ -1550,5 +1551,4 @@ export class PageConverter {
   }
 }
 
-export { ComponentDetector } from "./component-detector";
 export { HtmlParser } from "./html-parser";

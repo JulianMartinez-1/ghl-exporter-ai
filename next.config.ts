@@ -14,29 +14,18 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "**.gohighlevel.com" },
-      { protocol: "https", hostname: "**.leadconnectorhq.com" },
-      { protocol: "https", hostname: "storage.googleapis.com" },
-      { protocol: "https", hostname: "**.supabase.co" },
-      { protocol: "https", hostname: "images.unsplash.com" },
-    ],
-  },
   serverExternalPackages: [
     "playwright",
     "playwright-extra",
     "puppeteer-extra-plugin-stealth",
     "puppeteer-extra",
     "sharp",
-    "bullmq",
-    "ioredis",
     "winston",
     "@prisma/client",
     "prisma",
   ],
   experimental: {
-    optimizePackageImports: ["framer-motion", "lucide-react"],
+    optimizePackageImports: ["lucide-react"],
     turbopack: {
       resolveAlias: NODE_BROWSER_FALLBACKS,
     },

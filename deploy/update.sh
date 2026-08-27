@@ -18,7 +18,7 @@ echo "Building..."
 npm run build
 
 echo "Restarting processes..."
-pm2 restart ghl-exporter-web ghl-exporter-worker
+pm2 restart ghl-exporter-web
 
 echo "Done. App updated."
 pm2 list

@@ -1,97 +1,66 @@
-# GHL Exporter AI — Guía de Configuración
+# GHL → GitHub Exporter — Guía de Configuración
 
 ## Prerrequisitos
 
 - Node.js 20+
-- PostgreSQL (local o en la nube: Supabase, Neon, Railway)
-- Redis (local o en la nube: Upstash)
-- Cuenta en: Clerk, GoHighLevel Marketplace, GitHub, Vercel, Supabase
+- PostgreSQL (local o en la nube: Supabase, Neon, Railway) — solo guarda el
+  historial de exportaciones, no requiere nada especial.
+- Un token de GitHub con permisos `repo`.
 
 ## 1. Variables de entorno
 
-Edita `.env.local` y completa todos los valores:
+Copia `.env.example` a `.env.local` y completa:
 
 ```bash
-# Ver .env.local — contiene instrucciones para cada variable
+cp .env.example .env.local
 ```
 
-## 2. Configurar GoHighLevel App
+- `DATABASE_URL` / `DIRECT_URL` — tu Postgres.
+- `GITHUB_TOKEN` — [github.com/settings/tokens](https://github.com/settings/tokens), permisos `repo`.
+- `GITHUB_ORG` — opcional. Déjalo vacío para crear los repos en tu cuenta personal.
 
-1. Ve a [marketplace.gohighlevel.com](https://marketplace.gohighlevel.com)
-2. Crea una nueva app
-3. En OAuth Settings, agrega el Redirect URI:
-   ```
-   http://localhost:3000/api/ghl/oauth/callback
-   ```
-4. Copia el `Client ID` y `Client Secret` a tu `.env.local`
-5. Scopes requeridos:
-   - `locations.readonly`
-   - `funnels.readonly`
-   - `medias.readonly`
-
-## 3. Configurar Clerk
-
-1. Ve a [dashboard.clerk.com](https://dashboard.clerk.com)
-2. Crea una aplicación
-3. Copia las keys a `.env.local`
-4. En Webhooks, crea un endpoint:
-   ```
-   http://localhost:3000/api/auth/webhook
-   ```
-   Eventos: `user.created`, `user.updated`, `user.deleted`
-
-## 4. Base de datos
+## 2. Base de datos
 
 ```bash
-# Asegúrate de que DATABASE_URL en .env.local apunta a tu PostgreSQL
 npm run db:push       # Crea las tablas
 npm run db:generate   # Genera el cliente de Prisma
 ```
 
-## 5. Instalar y ejecutar
+## 3. Instalar y ejecutar
 
 ```bash
 npm install
 npm run dev
 ```
 
-## 6. Worker de exportaciones (proceso separado)
-
-El procesamiento de exportaciones ocurre en un worker BullMQ:
-
-```bash
-# En una terminal separada:
-npm run worker
-```
-
-> **Nota:** Sin el worker corriendo, las exportaciones quedarán en estado PENDING.
+Abre [http://localhost:3000](http://localhost:3000). No hay proceso separado
+que levantar — todo corre en el mismo servidor Next.js.
 
 ## Flujo de uso
 
-1. Regístrate en la app
-2. En el Dashboard → haz clic en "Conectar GoHighLevel"
-3. Autoriza la app en GHL
-4. Ve a "Exportaciones" → "Nueva exportación"
-5. Selecciona Funnel o Website → página → haz clic en "Exportar y Desplegar"
-6. Observa el progreso en tiempo real en la vista de detalle
+1. Pega el link público del funnel/sitio de GoHighLevel.
+2. La app rastrea todas sus páginas, genera un sitio estático idéntico y crea
+   un repositorio nuevo en tu GitHub.
+3. Al terminar, obtienes el link del repo y un ZIP de respaldo descargable.
+4. Sube ese repositorio (o el ZIP) a Hostinger (o cualquier hosting estático)
+   para publicarlo con tu propio dominio.
+
+Si el rastreo automático falla (por ejemplo, un sitio protegido por
+Cloudflare), la vista de la exportación permite pegar el HTML de la página a
+mano y reintentar con eso.
 
 ## Arquitectura
 
 ```
-API GHL (funnels, metadata)
+Link de GoHighLevel pegado por el usuario
        ↓
-  ¿Tiene HTML?
-  NO → Playwright renderiza la URL pública
+WebsiteCrawler (Playwright) rastrea todas las páginas del sitio/funnel
        ↓
-  Cheerio detecta componentes
+PageConverter genera HTML/CSS/JS estático 1:1
        ↓
-  Genera proyecto Next.js (app router, TypeScript, Tailwind)
+ZIP de respaldo local (descargable desde la UI)
        ↓
-  Sube ZIP a Supabase Storage
+Crea repositorio en GitHub + push de todos los archivos
        ↓
-  Crea repositorio GitHub + commit inicial
-       ↓
-  Crea proyecto Vercel + deploy
-       ↓
-  URL pública lista
+Repo listo para hostear en Hostinger (o cualquier hosting estático)
 ```

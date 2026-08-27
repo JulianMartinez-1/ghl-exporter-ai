@@ -8,71 +8,29 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  clerkId   String   @unique
-  email     String   @unique
-  name      String?
-  avatarUrl String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  ghlConnections GhlConnection[]
-  exports        Export[]
-  apiKeys        ApiKey[]
-
-  @@map("users")
-}
-
-model GhlConnection {
-  id                String   @id @default(cuid())
-  userId            String
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  locationId        String
-  locationName      String
-  accessToken       String   @db.Text
-  refreshToken      String   @db.Text
-  expiresAt         DateTime
-  scopes            String[]
-  companyId         String?
-  userType          String   @default("Location")
-  approvedLocations String[]
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  exports Export[]
-
-  @@unique([userId, locationId])
-  @@map("ghl_connections")
-}
-
+// Una fila por cada clonado de un sitio/funnel de GoHighLevel.
 model Export {
-  id               String       @id @default(cuid())
-  userId           String
-  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  connectionId     String
-  connection       GhlConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  sourceType       SourceType
-  sourceId         String
-  sourceName       String
-  pageId           String?
-  pageName         String?
-  pageUrl          String?
-  rawHtml          String?      @db.Text
-  status           ExportStatus @default(PENDING)
-  progress         Int          @default(0)
+  id     String @id @default(cuid())
+  url    String @db.Text // Link de GHL pegado por el usuario
+  name   String // Nombre del proyecto / repo (slug)
+  rawHtml String? @db.Text // HTML pegado manualmente (fallback cuando el crawl falla)
+
+  status   ExportStatus @default(PENDING)
+  progress Int          @default(0)
+
   extractionMethod ExtractionMethod?
-  githubRepoUrl    String?
-  githubRepoName   String?
-  vercelProjectId  String?
-  vercelDeployUrl  String?
-  vercelDeployId   String?
-  storageUrl       String?
-  errorMessage     String?
-  startedAt        DateTime?
-  completedAt      DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  pagesCount       Int?
+
+  githubRepoUrl  String?
+  githubRepoName String?
+  zipPath        String? // Ruta local del ZIP de respaldo, para descarga
+
+  errorMessage String? @db.Text
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   logs ExportLog[]
 
@@ -80,37 +38,15 @@ model Export {
 }
 
 model ExportLog {
-  id        String      @id @default(cuid())
+  id        String   @id @default(cuid())
   exportId  String
-  export    Export      @relation(fields: [exportId], references: [id], onDelete: Cascade)
-  level     LogLevel    @default(INFO)
-  message   String      @db.Text
+  export    Export   @relation(fields: [exportId], references: [id], onDelete: Cascade)
+  level     LogLevel @default(INFO)
+  message   String   @db.Text
   metadata  Json?
-  createdAt DateTime    @default(now())
+  createdAt DateTime @default(now())
 
   @@map("export_logs")
-}
-
-model ApiKey {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name      String
-  keyHash   String   @unique
-  prefix    String
-  scopes    String[]
-  lastUsedAt DateTime?
-  expiresAt  DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  @@map("api_keys")
-}
-
-enum SourceType {
-  FUNNEL
-  WEBSITE
-  LANDING_PAGE
 }
 
 enum ExportStatus {
@@ -118,14 +54,14 @@ enum ExportStatus {
   EXTRACTING
   CONVERTING
   PUSHING_TO_GITHUB
-  DEPLOYING
   COMPLETED
   FAILED
 }
 
 enum ExtractionMethod {
-  API
   PLAYWRIGHT
+  FETCH
+  HTML_PASTED
   HYBRID
 }
 

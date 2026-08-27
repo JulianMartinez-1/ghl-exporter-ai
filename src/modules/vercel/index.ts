@@ -1,1 +1,0 @@
-export { VercelService } from "./vercel.service";

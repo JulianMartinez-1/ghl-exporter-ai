@@ -33,8 +33,8 @@ prisma/migrations/dev.db
 *.tsbuildinfo
 next-env.d.ts
 
-# Generated exports
-exports/
+# ZIPs de respaldo generados por cada exportación (ver EXPORT_OUTPUT_DIR)
+data/exports/
 
 .vercel
 
